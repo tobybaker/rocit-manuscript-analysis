@@ -41,39 +41,64 @@ def load_sample_dist_df(sample_id):
     return sample_dist_df
         
 #hack for pandas
-def read_parquet(filepath:str):
-    df = polars.read_parquet(filepath)
+def read_parquet(filepath:str,scan:bool=False):
+    if scan:
+        df = polars.scan_parquet(filepath)
+    else:
+        df = polars.read_parquet(filepath)
     df = df.drop([c for c in df.columns if c.startswith("__index_level_")])
     return df
-def load_read_data(filepath:str):
+
+def inspect_memory(df: pl.DataFrame) -> None:
+    """
+    Prints memory usage per column (descending).
+    Truncates verbose Enum/Categorical type descriptions.
+    """
+    total_mb = df.estimated_size() / (1024**2)
+    print(f"--- Total Memory: {total_mb:.2f} MB ---")
+    print(f"{'Column':<30} | {'Type':<15} | {'Size (MB)':>10}")
+    print("-" * 61)
+
+    stats = []
+    for col in df.columns:
+        dtype = df[col].dtype
+        size_mb = df[col].estimated_size() / (1024**2)
+        
+        # Clean up ugly Enum/Categorical print output
+        if isinstance(dtype, polars.Enum):
+            type_str = "Enum"
+        elif isinstance(dtype, polars.Categorical):
+            type_str = "Categorical"
+        else:
+            type_str = str(dtype)
+            
+        stats.append((col, type_str, size_mb))
+
+    # Sort by size descending
+    stats.sort(key=lambda x: x[2], reverse=True)
+
+    for col, type_str, size_mb in stats:
+        print(f"{col:<30} | {type_str:<15} | {size_mb:>10.2f}")
+def load_read_data(filepath:str,scan=False):
     
-    df = read_parquet(filepath)
+    df = read_parquet(filepath,scan=scan)
     
     df = df.with_columns(
     polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
-    polars.col("Read_Position").cast(polars.Int32),
-    polars.col("Methylation").cast(polars.UInt8)
+    polars.col("Methylation").cast(polars.UInt8),
+    polars.col("Read_Index").cast(polars.Categorical)
     )
-
+    
     if 'Tumor_Read' in df.columns:
         df = df.with_columns(polars.col("Tumor_Read").cast(polars.Float32))
     if 'Strand' in df.columns:
-        df = df.with_columns(polars.col("Strand").cast(polars.Enum(["+","-"])))
-        
-    return df
-def process_grouped_read_data(read_data,sample_id=None):
-    if not sample_id is None:
-        read_data = read_data.with_columns(polars.lit(sample_id).alias("Sample_ID"))
-    
-    read_data = read_data.with_columns(
-    polars.col("Read_Index").cast(polars.Categorical),
-    polars.col("Sample_ID").cast(polars.Categorical),
-    )
-    
-    read_data = read_data.filter(~polars.col("Supplementary_Alignment"))
+        df = df.drop('Strand')
+    if 'Read_Count' in df.columns:
+        df = df.drop('Read_Count')
+    df = df.filter(~polars.col("Supplementary_Alignment"))
    
-    read_data = read_data.unique(subset=['Read_Index','Read_Position'])
-    return read_data
+    df = df.unique(subset=['Read_Index','Read_Position'])
+    return df
 
 def get_sample_training_reads(sample_id:str):
     base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data')
@@ -82,11 +107,12 @@ def get_sample_training_reads(sample_id:str):
     else:
         data_dir = base_dir/'labelled_read_dfs_qc_ASCAT_all_positions'
     df_store = []
-    for filepath in data_dir.glob(f'{sample_id}_labelled_reads.parquet'):
-        df = load_read_data(filepath)
-        df_store.append(df)
+    with polars.StringCache():
+        for filepath in data_dir.glob(f'{sample_id}_labelled_reads.parquet'):
+            df = load_read_data(filepath)
+            
+            df_store.append(df)
     read_data = polars.concat(df_store)
-    read_data = process_grouped_read_data(read_data,sample_id)
 
     return read_data
 
@@ -94,17 +120,16 @@ def get_sample_inference_reads(sample_id:str):
     base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_info_redo/tumor/')
     data_dir = base_dir/ sample_id
     
-    df_store = []
-    for filepath in data_dir.glob(f'cpg_methylation_data_*.parquet'):
-        df = load_read_data(filepath)
-        
-        df_store.append(df)
+    read_store = []
+    with polars.StringCache():
+        for filepath in data_dir.glob(f'cpg_methylation_data_*.parquet'):
+            df = load_read_data(filepath,scan=True)
+            df = df.with_columns(
+                polars.lit(sample_id).cast(polars.Categorical).alias("Sample_ID")
+            )
 
-    read_data = polars.concat(df_store)
-    
-    read_data = process_grouped_read_data(read_data,sample_id)
-    
-    return read_data
+            read_store.append(df)
+    return read_store
 
 def get_sample_inference_store(sample_id):
     
@@ -112,18 +137,18 @@ def get_sample_inference_store(sample_id):
     cell_map_df = load_cell_map_df()
 
     
-    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Sample_ID','Chromosome','Position'])
+    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
     cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
     
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
-    read_data = get_sample_inference_reads(sample_id)
-    
+    read_store = get_sample_inference_reads(sample_id)
+    print('loaded all reads')
 
     label_cols = ['Sample_ID','Read_Index','Chromosome']
     key_cols = ['Read_Index']
     
-    inference_dataset = ReadDataset(read_data,label_cols,key_cols,embedding_sources)
+    inference_dataset = ReadDataset(read_store,label_cols,key_cols,embedding_sources)
 
     
     return rocit.ROCITInferenceStore(inference_dataset,embedding_sources)
@@ -154,9 +179,9 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     label_cols = ['Read_Index','Chromosome','Tumor_Read']
     key_cols = ['Read_Index']
     
-    train_read_data = read_data.filter(polars.col("Chromosome").str.contains_any(train_chromosomes))
-    test_read_data = read_data.filter(polars.col("Chromosome").str.contains_any(test_chromosomes))
-    val_read_data = read_data.filter(polars.col("Chromosome").str.contains_any(val_chromosomes))
+    train_read_data = read_data.filter(polars.col("Chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
+    val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
 
     train_dataset = ReadDataset(train_read_data,label_cols,key_cols,embedding_sources)
     test_dataset = ReadDataset(test_read_data,label_cols,key_cols,embedding_sources)
@@ -164,5 +189,36 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     
     return rocit.ROCITTrainStore(train_dataset,test_dataset,val_dataset,embedding_sources)
 
+def get_sample_train_datasets_read_length(sample_id,target_length,min_length=15000):
+    all_chromosomes = [f'chr{x}' for x in range(1,23)] +['chrX']
+    test_chromosomes = ['chr4','chr21']
+    val_chromosomes = ['chr5','chr22']
+    non_train_chromosomes = set(test_chromosomes) | set(val_chromosomes)
 
+    # Filter the list
+    train_chromosomes = [chrom for chrom in all_chromosomes if chrom not in non_train_chromosomes]
+
+    sample_dist_df = load_sample_dist_df(sample_id)
+    cell_map_df = load_cell_map_df()
+    
+    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
+    cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
+    
+    embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
+
+    read_data = get_sample_training_reads(sample_id)
+    
+    print('LOAD READ EXTENT')
+    label_cols = ['Read_Index','Chromosome','Tumor_Read']
+    key_cols = ['Read_Index']
+    
+    train_read_data = read_data.filter(polars.col("Chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
+    val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
+
+    train_dataset = ReadDataset(train_read_data,label_cols,key_cols,embedding_sources)
+    test_dataset = ReadDataset(test_read_data,label_cols,key_cols,embedding_sources)
+    val_dataset = ReadDataset(val_read_data,label_cols,key_cols,embedding_sources)
+    
+    return rocit.ROCITTrainStore(train_dataset,test_dataset,val_dataset,embedding_sources)
 

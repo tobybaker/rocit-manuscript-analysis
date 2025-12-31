@@ -135,7 +135,7 @@ def get_sample_inference_reads(sample_id:str):
 def get_sample_inference_store(sample_id):
     
     sample_dist_df = load_sample_dist_df(sample_id)
-    cell_map_df = load_cell_map_df(
+    cell_map_df = load_cell_map_df()
     
     sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
     cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])

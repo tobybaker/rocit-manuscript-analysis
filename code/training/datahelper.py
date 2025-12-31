@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import datahelper
 import rocit
-from rocit.data import EmbeddingStore,ReadDataset
+from rocit.data import EmbeddingStore,ReadDatasetBuilder
 from torch.utils.data import Dataset, DataLoader
 CHROMOSOMES  = [f'chr{x}' for x in range(1,23)] +['chrX','chrY','chrM']
 def tumor_to_normal_id(tumor_id):
@@ -129,13 +129,13 @@ def get_sample_inference_reads(sample_id:str):
             )
 
             read_store.append(df)
+            
     return read_store
 
 def get_sample_inference_store(sample_id):
     
     sample_dist_df = load_sample_dist_df(sample_id)
-    cell_map_df = load_cell_map_df()
-
+    cell_map_df = load_cell_map_df(
     
     sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
     cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
@@ -148,8 +148,8 @@ def get_sample_inference_store(sample_id):
     label_cols = ['Sample_ID','Read_Index','Chromosome']
     key_cols = ['Read_Index']
     
-    inference_dataset = ReadDataset(read_store,label_cols,key_cols,embedding_sources)
-
+    inference_dataset_builder = ReadDatasetBuilder(read_store,label_cols,key_cols,embedding_sources)
+    inference_dataset = inference_dataset_builder.build()
     
     return rocit.ROCITInferenceStore(inference_dataset,embedding_sources)
 
@@ -183,11 +183,12 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
     val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
 
-    train_dataset = ReadDataset(train_read_data,label_cols,key_cols,embedding_sources)
-    test_dataset = ReadDataset(test_read_data,label_cols,key_cols,embedding_sources)
-    val_dataset = ReadDataset(val_read_data,label_cols,key_cols,embedding_sources)
+
+    train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
+    test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)
+    val_dataset_builder = ReadDatasetBuilder(val_read_data,label_cols,key_cols,embedding_sources)
     
-    return rocit.ROCITTrainStore(train_dataset,test_dataset,val_dataset,embedding_sources)
+    return rocit.ROCITTrainStore(train_dataset_builder.build(),test_dataset_builder.build(),val_dataset_builder.build(),embedding_sources)
 
 def get_sample_train_datasets_read_length(sample_id,target_length,min_length=15000):
     all_chromosomes = [f'chr{x}' for x in range(1,23)] +['chrX']

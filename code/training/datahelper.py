@@ -119,7 +119,7 @@ def get_sample_training_reads(sample_id:str):
         data_dir = base_dir/'labelled_read_dfs_qc_ASCAT_all_positions'
     df_store = []
     with polars.StringCache():
-        for filepath in data_dir.glob(f'{sample_id}_labelled_reads.parquet'):
+        for filepath in data_dir.glob(f'{sample_id}_labelled_reads*.parquet'):
             df = load_read_data(filepath)
 
             df = df.with_columns(
@@ -128,7 +128,7 @@ def get_sample_training_reads(sample_id:str):
             
             df_store.append(df)
     read_data = polars.concat(df_store)
-
+    
     return read_data
 
 def get_sample_inference_reads(sample_id:str):
@@ -208,12 +208,14 @@ def load_read_extent_store(sample_id:str):
     read_extent_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/read_extent')
     read_extent_path = read_extent_dir/f'{sample_id}_read_extent.parquet'
     read_extent =read_parquet(read_extent_path)
+    
     read_extent = read_extent.with_columns(
     polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
     polars.col("Read_Index").cast(polars.Categorical),
     polars.col("Reference_Start").cast(polars.Int32),
     polars.col("Reference_End").cast(polars.Int32)
     )
+    read_extent = read_extent.drop(['Reference_Start','Reference_End'])
     return read_extent
 def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15000):
     RNG = np.random.default_rng(10125)
@@ -237,26 +239,23 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     read_data = get_sample_training_reads(sample_id)
     
     read_extent = load_read_extent_store(sample_id)
-    read_extent = read_extent.with_columns((polars.col("Reference_End") - polars.col("Reference_Start")).alias('Read_Length'))
+
     read_extent = read_extent.filter(polars.col("Read_Length") >= min_length)
     read_extent = read_extent.with_columns(
-    polars.Series("Sampled_Reference_Start", RNG.integers(
-        read_extent["Reference_Start"].to_numpy(), 
-        read_extent["Reference_End"].to_numpy() -read_length
+    polars.Series("Sampled_Read_Start", RNG.integers(
+        0, 
+        read_extent["Read_Length"].to_numpy() -read_length
     ))
     )
 
-    read_extent = read_extent.with_columns( (polars.col('Sampled_Reference_Start')+read_length).alias('Sampled_Reference_End'))
-    
-    print(read_extent)
-    exit()
+    read_extent = read_extent.with_columns((polars.col('Sampled_Read_Start')+read_length).alias('Sampled_Read_End'))
     
     
     read_data = read_data.join(read_extent,how='inner',on=['Read_Index','Chromosome'])
     
-    exit()
+    read_data = read_data.filter(polars.col("Read_Position").is_between(polars.col("Sampled_Read_Start"), polars.col("Sampled_Read_End"), closed="both"))
+    read_data = read_data.drop(['Read_Length','Sampled_Read_Start','Sampled_Read_End'])
     
-    print('LOAD READ EXTENT')
     label_cols = ['Read_Index','Chromosome','Tumor_Read']
     key_cols = ['Read_Index']
     

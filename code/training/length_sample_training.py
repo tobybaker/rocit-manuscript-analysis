@@ -27,7 +27,7 @@ def run_training_inference(train_result,out_sample_ids,experiment_name,train_pre
 
 if __name__ =="__main__":
     log_dir = Path('/hot/user/tobybaker/ROCIT_Paper/models/length_models')
-    predictions_dir = Path('/hot/user/tobybaker/ROCIT_Paper/length_predictions')
+    predictions_dir = Path('/hot/user/tobybaker/ROCIT_Paper/predictions')
 
     param_config = {}
     param_config['Sample_ID'] = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
@@ -38,7 +38,7 @@ if __name__ =="__main__":
     run_param = run_params[int(sys.argv[1])]
 
     sample_predictions_dir = clean_and_create_dir(predictions_dir/f"{run_param['Sample_ID']}")
-    train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'train_datasets')
+    train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'length_datasets')
     
     experiment_name = f"{run_param['Sample_ID']}_read_length_{run_param['Read_Length']}"
     

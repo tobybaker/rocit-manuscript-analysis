@@ -5,6 +5,6 @@
 #SBATCH --time=12:30:00 
 #SBATCH --mem=0
 #SBATCH --exclusive
-#SBATCH --array=0
+#SBATCH --array=0-1
 
 ~/miniconda3/envs/pytorch_env/bin/python  main_sample_training.py $SLURM_ARRAY_TASK_ID

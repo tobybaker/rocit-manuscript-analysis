@@ -132,7 +132,7 @@ def process_chromosome(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{bam_path.stem}_{chromosome}_cpg_methylation.parquet"
-
+    
     # Accumulate data in lists for efficient Polars DataFrame construction
     read_ids: list[int] = []
     read_names: list[str] = []
@@ -222,6 +222,12 @@ def process_bam(
     bam_path = Path(bam_path)
     output_dir = Path(output_dir)
 
+    if output_dir.exists():
+        if any(output_dir.iterdir()):
+            raise FileExistsError(f"Output directory is not empty: {output_dir}")
+    else:
+        output_dir.mkdir(parents=True)
+
     # Validate BAM has required chromosomes
     with pysam.AlignmentFile(str(bam_path), "rb") as bam:
         available_chroms = set(bam.references)
@@ -232,6 +238,7 @@ def process_bam(
         chromosomes = [c for c in chromosomes if c in available_chroms]
 
     if n_workers == 1:
+        
         return [
             process_chromosome(bam_path, chrom, output_dir, index_path, min_mapq)
             for chrom in chromosomes

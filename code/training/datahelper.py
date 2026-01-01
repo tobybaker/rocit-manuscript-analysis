@@ -1,10 +1,21 @@
 import polars
+import numpy as np
 from pathlib import Path
 import sys
 import datahelper
 import rocit
+import itertools
 from rocit.data import EmbeddingStore,ReadDatasetBuilder
 from torch.utils.data import Dataset, DataLoader
+
+def get_run_params(param_config):
+    param_names = list(param_config.keys())
+    param_values = list(param_config.values())
+    
+    return [
+        dict(zip(param_names, combination))
+        for combination in itertools.product(*param_values)
+    ]
 CHROMOSOMES  = [f'chr{x}' for x in range(1,23)] +['chrX','chrY','chrM']
 def tumor_to_normal_id(tumor_id):
     if not 'TU' in tumor_id:
@@ -49,7 +60,7 @@ def read_parquet(filepath:str,scan:bool=False):
     df = df.drop([c for c in df.columns if c.startswith("__index_level_")])
     return df
 
-def inspect_memory(df: pl.DataFrame) -> None:
+def inspect_memory(df: polars.DataFrame) -> None:
     """
     Prints memory usage per column (descending).
     Truncates verbose Enum/Categorical type descriptions.
@@ -90,7 +101,7 @@ def load_read_data(filepath:str,scan=False):
     )
     
     if 'Tumor_Read' in df.columns:
-        df = df.with_columns(polars.col("Tumor_Read").cast(polars.Float32))
+        df = df.with_columns(polars.col("Tumor_Read").cast(polars.Boolean))
     if 'Strand' in df.columns:
         df = df.drop('Strand')
     if 'Read_Count' in df.columns:
@@ -193,7 +204,20 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     
     return rocit.ROCITTrainStore(train_dataset_builder.build(),test_dataset_builder.build(),val_dataset_builder.build(),embedding_sources)
 
-def get_sample_train_datasets_read_length(sample_id,target_length,min_length=15000):
+def load_read_extent_store(sample_id:str):
+    read_extent_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/read_extent')
+    read_extent_path = read_extent_dir/f'{sample_id}_read_extent.parquet'
+    read_extent =read_parquet(read_extent_path)
+    read_extent = read_extent.with_columns(
+    polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
+    polars.col("Read_Index").cast(polars.Categorical),
+    polars.col("Reference_Start").cast(polars.Int32),
+    polars.col("Reference_End").cast(polars.Int32)
+    )
+    return read_extent
+def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15000):
+    RNG = np.random.default_rng(10125)
+    
     all_chromosomes = [f'chr{x}' for x in range(1,23)] +['chrX']
     test_chromosomes = ['chr4','chr21']
     val_chromosomes = ['chr5','chr22']
@@ -211,6 +235,26 @@ def get_sample_train_datasets_read_length(sample_id,target_length,min_length=150
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
     read_data = get_sample_training_reads(sample_id)
+    
+    read_extent = load_read_extent_store(sample_id)
+    read_extent = read_extent.with_columns((polars.col("Reference_End") - polars.col("Reference_Start")).alias('Read_Length'))
+    read_extent = read_extent.filter(polars.col("Read_Length") >= min_length)
+    read_extent = read_extent.with_columns(
+    polars.Series("Sampled_Reference_Start", RNG.integers(
+        read_extent["Reference_Start"].to_numpy(), 
+        read_extent["Reference_End"].to_numpy() -read_length
+    ))
+    )
+
+    read_extent = read_extent.with_columns( (polars.col('Sampled_Reference_Start')+read_length).alias('Sampled_Reference_End'))
+    
+    print(read_extent)
+    exit()
+    
+    
+    read_data = read_data.join(read_extent,how='inner',on=['Read_Index','Chromosome'])
+    
+    exit()
     
     print('LOAD READ EXTENT')
     label_cols = ['Read_Index','Chromosome','Tumor_Read']

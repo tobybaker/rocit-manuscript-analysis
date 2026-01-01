@@ -71,4 +71,5 @@ if __name__ =="__main__":
     
     
     run_full_dataset_inference(train_result,run_param['Sample_ID'],experiment_name,full_predictions_dir)
+
     run_training_inference(train_result,param_config['Sample_ID'],experiment_name,train_predictions_dir)

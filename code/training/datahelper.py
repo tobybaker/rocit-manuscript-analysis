@@ -110,6 +110,10 @@ def get_sample_training_reads(sample_id:str):
     with polars.StringCache():
         for filepath in data_dir.glob(f'{sample_id}_labelled_reads.parquet'):
             df = load_read_data(filepath)
+
+            df = df.with_columns(
+                polars.lit(sample_id).cast(polars.Categorical).alias("Sample_ID")
+            )
             
             df_store.append(df)
     read_data = polars.concat(df_store)
@@ -143,7 +147,6 @@ def get_sample_inference_store(sample_id):
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
     read_store = get_sample_inference_reads(sample_id)
-    print('loaded all reads')
 
     label_cols = ['Sample_ID','Read_Index','Chromosome']
     key_cols = ['Read_Index']
@@ -176,7 +179,7 @@ def get_sample_train_datasets(sample_id,add_normal=False):
         normal_read_data = get_sample_training_reads(normal_sample_id)
         read_data = polars.concat([read_data,normal_read_data])
 
-    label_cols = ['Read_Index','Chromosome','Tumor_Read']
+    label_cols = ['Sample_ID','Read_Index','Chromosome','Tumor_Read']
     key_cols = ['Read_Index']
     
     train_read_data = read_data.filter(polars.col("Chromosome").is_in(train_chromosomes))

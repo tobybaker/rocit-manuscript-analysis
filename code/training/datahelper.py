@@ -263,9 +263,9 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
     val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
 
-    train_dataset = ReadDataset(train_read_data,label_cols,key_cols,embedding_sources)
-    test_dataset = ReadDataset(test_read_data,label_cols,key_cols,embedding_sources)
-    val_dataset = ReadDataset(val_read_data,label_cols,key_cols,embedding_sources)
+    train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
+    test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)
+    val_dataset_builder = ReadDatasetBuilder(val_read_data,label_cols,key_cols,embedding_sources)
     
-    return rocit.ROCITTrainStore(train_dataset,test_dataset,val_dataset,embedding_sources)
+    return rocit.ROCITTrainStore(train_dataset_builder.build(),test_dataset_builder.build(),val_dataset_builder.build(),embedding_sources)
 

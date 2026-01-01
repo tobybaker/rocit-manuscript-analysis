@@ -10,8 +10,8 @@ class Temp:
     def __init__(self,best_checkpoint_path):
         self.best_checkpoint_path = best_checkpoint_path
 def clean_and_create_dir(dir_path:Path):
-    if dir_path.exists():
-        shutil.rmtree(dir_path)
+    '''if dir_path.exists():
+        shutil.rmtree(dir_path)'''
     dir_path.mkdir(parents=True, exist_ok=True)
     return dir_path
 

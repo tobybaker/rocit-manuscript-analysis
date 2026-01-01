@@ -7,4 +7,4 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --array=0-1
 
-~/miniconda3/envs/pytorch_env/bin/python  main_sample_training.py $SLURM_ARRAY_TASK_ID
+~/miniconda3/envs/pytorch_env/bin/python length_sample_training.py $SLURM_ARRAY_TASK_ID

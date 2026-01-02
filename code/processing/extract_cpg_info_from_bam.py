@@ -112,6 +112,7 @@ def process_chromosome(
     bam_path: str | Path,
     chromosome: str,
     output_dir: str | Path,
+    sample_id:str,
     index_path: Optional[str | Path] = None,
     min_mapq: int = 0
 ) -> Path:
@@ -122,6 +123,7 @@ def process_chromosome(
         bam_path: Path to the BAM file.
         chromosome: Chromosome name to process.
         output_dir: Directory for output parquet files.
+        sample_id: Sample ID used for file naming
         index_path: Optional path to BAM index file.
         min_mapq: Minimum mapping quality threshold.
     
@@ -131,7 +133,7 @@ def process_chromosome(
     bam_path = Path(bam_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{bam_path.stem}_{chromosome}_cpg_methylation.parquet"
+    output_path = output_dir / f"{sample_id}_{chromosome}_cpg_methylation.parquet"
     
     # Accumulate data in lists for efficient Polars DataFrame construction
     read_ids: list[int] = []
@@ -197,6 +199,7 @@ def process_chromosome(
 def process_bam(
     bam_path: str | Path,
     output_dir: str | Path,
+    sample_id:str,
     chromosomes: Optional[list[str]] = None,
     index_path: Optional[str | Path] = None,
     min_mapq: int = 0,
@@ -208,6 +211,7 @@ def process_bam(
     Args:
         bam_path: Path to the BAM file.
         output_dir: Directory for output parquet files.
+        sample_id: Sample ID used for file naming
         chromosomes: List of chromosomes to process. Defaults to HG38_STANDARD_CHROMOSOMES.
         index_path: Optional path to BAM index file.
         min_mapq: Minimum mapping quality threshold.
@@ -240,7 +244,7 @@ def process_bam(
     if n_workers == 1:
         
         return [
-            process_chromosome(bam_path, chrom, output_dir, index_path, min_mapq)
+            process_chromosome(bam_path, chrom, output_dir,sample_id, index_path, min_mapq)
             for chrom in chromosomes
         ]
 
@@ -249,7 +253,7 @@ def process_bam(
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = [
             executor.submit(
-                process_chromosome, bam_path, chrom, output_dir, index_path, min_mapq
+                process_chromosome, bam_path, chrom, output_dir,sample_id, index_path, min_mapq
             )
             for chrom in chromosomes
         ]
@@ -264,6 +268,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("bam", type=Path, help="Input BAM file")
     parser.add_argument("output_dir", type=Path, help="Output directory for parquet files")
+    parser.add_argument("sample_id", type=str, help="Sample ID")
     parser.add_argument("--index", type=Path, help="BAM index file path")
     parser.add_argument("--min-mapq", type=int, default=0, help="Minimum mapping quality")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers")
@@ -279,6 +284,7 @@ if __name__ == "__main__":
     output_files = process_bam(
         bam_path=args.bam,
         output_dir=args.output_dir,
+        sample_id=args.sample_id,
         chromosomes=args.chromosomes,
         index_path=args.index,
         min_mapq=args.min_mapq,

@@ -136,8 +136,8 @@ def process_chromosome(
     output_path = output_dir / f"{sample_id}_{chromosome}_cpg_methylation.parquet"
     
     # Accumulate data in lists for efficient Polars DataFrame construction
-    read_ids: list[int] = []
-    read_names: list[str] = []
+    read_counts: list[int] = []
+    read_indexes: list[str] = []
     is_supplementary: list[bool] = []
     chromosomes: list[str] = []
     positions: list[int | None] = []
@@ -162,8 +162,8 @@ def process_chromosome(
             if n_sites == 0:
                 continue
 
-            read_ids.extend([alignment_counter] * n_sites)
-            read_names.extend([read.query_name] * n_sites)
+            read_counts.extend([alignment_counter] * n_sites)
+            read_indexes.extend([read.query_name] * n_sites)
             is_supplementary.extend([read.is_supplementary] * n_sites)
             chromosomes.extend([chromosome] * n_sites)
             positions.extend(ref_pos)
@@ -174,21 +174,22 @@ def process_chromosome(
             alignment_counter += 1
 
     df = pl.DataFrame({
-        "alignment_id": read_ids,
-        "read_name": read_names,
+        "read_count": read_counts,
+        "read_index": read_indexes,
         "is_supplementary": is_supplementary,
         "chromosome": chromosomes,
         "position": positions,
         "read_position": read_positions,
-        "methylation_prob": methylation_probs,
+        "methylation": methylation_probs,
         "strand": strands,
     }).with_columns([
-        pl.col("alignment_id").cast(pl.UInt32),
+        pl.col("read_count").cast(pl.UInt32),
         pl.col("chromosome").cast(pl.Categorical),
+        pl.col("read_index").cast(pl.Categorical),
         pl.col("strand").cast(pl.Categorical),
         pl.col("position").cast(pl.Int32),
-        pl.col("read_position").cast(pl.UInt16),
-        pl.col("methylation_prob").cast(pl.UInt8),
+        pl.col("read_position").cast(pl.Int32),
+        pl.col("methylation").cast(pl.UInt8),
     ])
 
     df.write_parquet(output_path)

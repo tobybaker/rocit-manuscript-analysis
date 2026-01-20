@@ -1,5 +1,5 @@
 import polars as pl
-
+import pandas as pd
 from pathlib import Path
 
 DPCLUST_DIR = Path('/hot/user/nmatulionis/software/dpclust/output/deepsomatic_filtered_w_sage_ascat')
@@ -8,6 +8,8 @@ DPCLUST_DIR = Path('/hot/user/nmatulionis/software/dpclust/output/deepsomatic_fi
 def get_dpclust_sample_id(sample_id:str):
     sample_base =sample_id.split('_')[0]
     return sample_base
+
+
     
 def load_cluster_labels(
     sample_id: str,
@@ -54,6 +56,22 @@ def load_cluster_labels(
 
     return cluster_info.select(["cluster", "cluster_label", "cluster_ccf", "cluster_fraction"])
 
+def get_dpinput_path(dpclust_sample_id):
+    in_dir = DPCLUST_DIR /dpclust_sample_id
+    dpinput_path = in_dir/f'{dpclust_sample_id}_dpInput.txt'
+    return dpinput_path
+    
+    
+def load_snv_copies(dpclust_sample_id):
+    dpinput_filepath = get_dpinput_path(dpclust_sample_id)
+    
+    dpinput_df  = pl.read_csv(dpinput_filepath,separator="\t",null_values=['NA'],has_header=False, skip_rows=1,infer_schema_length=100000)
+    dpinput_df.columns = ['index','chr', 'start', 'end', 'WT.count', 'mut.count', 'subclonal.CN', 'nMaj1', 'nMin1', 'frac1', 'nMaj2', 'nMin2', 'frac2', 'phase', 'mutation.copy.number', 'subclonal.fraction', 'no.chrs.bearing.mut']
+    dpinput_df = dpinput_df.select(['chr','end','no.chrs.bearing.mut'])
+    
+    dpinput_df = dpinput_df.rename({'chr':'chromosome','end':'position','no.chrs.bearing.mut':'n_copies'}  )
+    dpinput_df = dpinput_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome"))
+    return dpinput_df
 
 def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl.DataFrame:
     dpclust_sample_id = get_dpclust_sample_id(sample_id)
@@ -91,5 +109,9 @@ def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl
         how="inner",
     )
 
-    return cluster_assignment_df.select(["chromosome", "position", "cluster_label"])
+    cluster_assignment_df= cluster_assignment_df.select(["chromosome", "position", "cluster_label"])
 
+    n_copies_df = load_snv_copies(dpclust_sample_id)
+    
+    cluster_assignment_df = cluster_assignment_df.join(n_copies_df,how='inner',on=['chromosome','position'])
+    return cluster_assignment_df

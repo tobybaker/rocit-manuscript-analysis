@@ -28,17 +28,17 @@ def get_sage_vcf_path(sample_id):
 
 def get_ad_index(df: pl.DataFrame) -> int:
     try:
-        first_format = df.select(pl.col("Format")).row(0)[0]
+        first_format = df.select(pl.col("format")).row(0)[0]
         return first_format.split(':').index('AD')
     except (ValueError, IndexError):
-        raise ValueError("Could not find 'AD' field in the 'Format' column.")
+        raise ValueError("Could not find 'AD' field in the 'format' column.")
 
 def load_vcf(vcf_path: str, mode: str = 'deepsomatic', pass_filter: bool = True) -> pl.DataFrame:
 
     if mode == 'deepsomatic':
-        col_names = ['Chromosome', 'Position', 'ID', 'Ref', 'Alt', 'Qual', 'Filter', 'Info', 'Format', 'Data']
+        col_names = ['chromosome', 'position', 'id', 'ref', 'alt', 'qual', 'filter', 'info', 'format', 'data']
     elif mode == 'sage':
-        col_names = ['Chromosome', 'Position', 'ID', 'Ref', 'Alt', 'Qual', 'Filter', 'Info', 'Format', 'Normal_Data', 'Data']
+        col_names = ['chromosome', 'position', 'id', 'ref', 'alt', 'qual', 'filter', 'info', 'format','normal_data', 'data']
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -53,14 +53,14 @@ def load_vcf(vcf_path: str, mode: str = 'deepsomatic', pass_filter: bool = True)
     # 3. Determine AD index
     ad_col_index = get_ad_index(df)
  
-    data_split = pl.col('Data').str.split(':')
+    data_split = pl.col('data').str.split(':')
     
-    genotype_expr = data_split.list.get(0).alias('Genotype')
+    genotype_expr = data_split.list.get(0).alias('genotype')
 
     ad_part_split = data_split.list.get(ad_col_index).str.split(',')
     
-    ref_count_expr = ad_part_split.list.get(0).cast(pl.Int64).alias('Tumor_Ref_Count')
-    alt_count_expr = ad_part_split.list.get(1).cast(pl.Int64).alias('Tumor_Alt_Count')
+    ref_count_expr = ad_part_split.list.get(0).cast(pl.Int64).alias('tumor_ref_count')
+    alt_count_expr = ad_part_split.list.get(1).cast(pl.Int64).alias('tumor_alt_count')
 
     # 5. Apply transformations
     df = df.with_columns([
@@ -71,16 +71,16 @@ def load_vcf(vcf_path: str, mode: str = 'deepsomatic', pass_filter: bool = True)
 
 
     df = df.with_columns(
-        (pl.col('Tumor_Alt_Count') / (pl.col('Tumor_Alt_Count') + pl.col('Tumor_Ref_Count'))).alias('VAF')
+        (pl.col('tumor_alt_count') / (pl.col('tumor_alt_count') + pl.col('tumor_ref_count'))).alias('vaf')
     )
 
     if pass_filter:
-        df = df.filter(pl.col('Filter') == 'PASS')
+        df = df.filter(pl.col('filter') == 'PASS')
 
     if mode == 'deepsomatic':
-        df = df.filter(pl.col('Genotype') == '1/1')
+        df = df.filter(pl.col('genotype') == '1/1')
  
-    df = df.drop(['ID', 'Qual', 'Info', 'Format', 'Data'])
+    df = df.drop(['id', 'qual', 'info', 'format', 'data'])
     
     return df
 
@@ -92,10 +92,10 @@ def load_short_read_variants(sample_id):
     
     vcf = load_vcf(sage_vcf_path,mode='sage',pass_filter=False)
 
-    vcf = vcf.filter(pl.col('Ref').is_in(bases))
-    vcf = vcf.filter(pl.col('Alt').is_in(bases))
+    vcf = vcf.filter(pl.col('ref').is_in(bases))
+    vcf = vcf.filter(pl.col('alt').is_in(bases))
     
-    return vcf.select(['Chromosome','Position','Ref','Alt','Filter'])
+    return vcf.select(['chromosome','position','ref','alt','filter'])
 
 
 def load_long_read_variants(sample_id):
@@ -103,7 +103,7 @@ def load_long_read_variants(sample_id):
     sage_vcf_path = get_deepsomatic_vcf_path(sample_id)
     
     vcf = load_vcf(sage_vcf_path,mode='deepsomatic')
-    vcf = vcf.filter(pl.col('Ref').is_in(bases))
-    vcf = vcf.filter(pl.col('Alt').is_in(bases))
+    vcf = vcf.filter(pl.col('ref').is_in(bases))
+    vcf = vcf.filter(pl.col('alt').is_in(bases))
 
-    return vcf.select(['Chromosome','Position','Tumor_Ref_Count','Tumor_Alt_Count','VAF'])
+    return vcf.select(['chromosome','position','ref','alt','tumor_ref_count','tumor_alt_count','vaf'])

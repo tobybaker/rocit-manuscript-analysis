@@ -37,6 +37,7 @@ if __name__ =='__main__':
     
     haplotags = phasing_loader.load_haplotags(sample_id)
     haploblocks = phasing_loader.load_haploblocks(sample_id)
+    
 
     long_read_variants = variant_loader.load_long_read_variants(sample_id)
     short_read_variants = variant_loader.load_short_read_variants(sample_id)

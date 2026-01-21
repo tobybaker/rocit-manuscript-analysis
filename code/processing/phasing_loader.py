@@ -12,7 +12,7 @@ def get_phasing_filepath(sample_id,mode):
         sample_base = sample_base.replace('BS','')
     
     if mode =='haploblocks':
-        suffix = '.PASS_dbSNP.stats.tsv'
+        suffix = '.PASS_dbSNP.blocks.tsv'
     if mode =='haplotags':
         suffix = '.PASS_dbSNP.HapTags.tsv'
     filepath = phasing_dir/f'{sample_base}{suffix}'
@@ -24,13 +24,13 @@ def load_haploblocks(sample_id):
     haploblocks = pl.read_csv(
         filepath, 
         separator="\t", 
-        columns=['block_index', 'chrom', 'start', 'end', 'num_variants']
+        columns=['phase_block_id', 'chrom', 'start', 'end', 'num_variants']
     )
     
     haploblocks = (
         haploblocks
         .rename({
-            'block_index': 'block_id', 
+            'phase_block_id': 'block_id', 
             'chrom': 'chromosome', 
             'start': 'block_start', 
             'end': 'block_end', 
@@ -48,11 +48,11 @@ def load_haplotags(sample_id):
     haplotags = pl.read_csv(
         filepath, 
         separator="\t", 
-        columns=['chrom', 'read_name', 'haplotag', 'source_block_index']
+        columns=['chrom', 'read_name', 'haplotag', 'phase_block_id']
     )
     haplotags = haplotags.rename({
         'read_name': 'read_index', 
-        'source_block_index': 'block_id',
+        'phase_block_id': 'block_id',
         'chrom': 'chromosome',
         'haplotag': 'haplotag'
     })

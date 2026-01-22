@@ -5,7 +5,7 @@ import datahelper
 
 from pathlib import Path
 from rocit import train,predict,ROCITInferenceStore
-
+import gc
 def clean_and_create_dir(dir_path:Path):
     if dir_path.exists():
         shutil.rmtree(dir_path)
@@ -23,11 +23,16 @@ def run_training_inference(train_result,out_sample_ids,experiment_name,train_pre
             out_path = train_predictions_dir/f"train_{experiment_name}_out_{out_sample_id}_{dataset_name}_dataset.parquet"
             
             predictions.write_parquet(out_path)
+            
+        del dataset_iter
+        del train_data_store
+        gc.collect()
+            
 
 
 if __name__ =="__main__":
     log_dir = Path('/hot/user/tobybaker/ROCIT_Paper/models/length_models')
-    predictions_dir = Path('/hot/user/tobybaker/ROCIT_Paper/predictions')
+    predictions_dir = Path('/hot/user/tobybaker/ROCIT_Paper/predictions/length_predictions')
 
     param_config = {}
     param_config['Sample_ID'] = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
@@ -36,9 +41,10 @@ if __name__ =="__main__":
     
     
     run_param = run_params[int(sys.argv[1])]
+    sample_predictions_dir = predictions_dir/run_param['Sample_ID']
 
 
-    train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'length_datasets')
+    sample_predictions_dir = clean_and_create_dir(sample_predictions_dir)
     
     experiment_name = f"{run_param['Sample_ID']}_read_length_{run_param['Read_Length']}"
     
@@ -46,4 +52,4 @@ if __name__ =="__main__":
     clean_and_create_dir(log_dir/experiment_name)
     train_result = train(train_data_store,log_dir,experiment_name,training_params=None)
     
-    run_training_inference(train_result,param_config['Sample_ID'],experiment_name,train_predictions_dir)
+    run_training_inference(train_result,param_config['Sample_ID'],experiment_name,sample_predictions_dir)

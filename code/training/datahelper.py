@@ -32,7 +32,7 @@ def load_cell_map_df():
     cell_map_df = read_parquet(cell_type_path)
     
     cell_map_df = cell_map_df.with_columns(
-    polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
+    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
     )
     return cell_map_df
     
@@ -42,11 +42,11 @@ def load_sample_dist_df(sample_id):
     sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
     sample_dist_df = read_parquet(sample_dist_path)
     
-    #sample_dist_df = sample_dist_df.with_columns(polars.lit(sample_id).alias("Sample_ID"))
+    #sample_dist_df = sample_dist_df.with_columns(polars.lit(sample_id).alias("sample_id"))
 
     sample_dist_df = sample_dist_df.with_columns(
-    polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
-    #polars.col("Sample_ID").cast(polars.Categorical)
+    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
+    #polars.col("sample_id").cast(polars.Categorical)
     )
 
     return sample_dist_df
@@ -95,20 +95,20 @@ def load_read_data(filepath:str,scan=False):
     df = read_parquet(filepath,scan=scan)
     
     df = df.with_columns(
-    polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
-    polars.col("Methylation").cast(polars.UInt8),
-    polars.col("Read_Index").cast(polars.Categorical)
+    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
+    polars.col("methylation").cast(polars.UInt8),
+    polars.col("read_index").cast(polars.Categorical)
     )
     
-    if 'Tumor_Read' in df.columns:
-        df = df.with_columns(polars.col("Tumor_Read").cast(polars.Boolean))
-    if 'Strand' in df.columns:
-        df = df.drop('Strand')
-    if 'Read_Count' in df.columns:
-        df = df.drop('Read_Count')
-    df = df.filter(~polars.col("Supplementary_Alignment"))
+    if 'tumor_read' in df.columns:
+        df = df.with_columns(polars.col("tumor_read").cast(polars.Boolean))
+    if 'strand' in df.columns:
+        df = df.drop('strand')
+    if 'read_count' in df.columns:
+        df = df.drop('read_count')
+    df = df.filter(~polars.col("supplementary_alignment"))
    
-    df = df.unique(subset=['Read_Index','Read_Position'])
+    df = df.unique(subset=['read_index','read_position'])
     return df
 
 def get_sample_training_reads(sample_id:str):
@@ -123,7 +123,7 @@ def get_sample_training_reads(sample_id:str):
             df = load_read_data(filepath)
 
             df = df.with_columns(
-                polars.lit(sample_id).cast(polars.Categorical).alias("Sample_ID")
+                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
             )
             
             df_store.append(df)
@@ -140,7 +140,7 @@ def get_sample_inference_reads(sample_id:str):
         for filepath in data_dir.glob(f'cpg_methylation_data_*.parquet'):
             df = load_read_data(filepath,scan=True)
             df = df.with_columns(
-                polars.lit(sample_id).cast(polars.Categorical).alias("Sample_ID")
+                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
             )
 
             read_store.append(df)
@@ -152,15 +152,15 @@ def get_sample_inference_store(sample_id):
     sample_dist_df = load_sample_dist_df(sample_id)
     cell_map_df = load_cell_map_df()
     
-    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
-    cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
+    sample_source = EmbeddingStore('sample_distribution',sample_dist_df,['chromosome','position'])
+    cell_map_source = EmbeddingStore('cell_map',cell_map_df,['chromosome','position'])
     
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
     read_store = get_sample_inference_reads(sample_id)
 
-    label_cols = ['Sample_ID','Read_Index','Chromosome']
-    key_cols = ['Read_Index']
+    label_cols = ['sample_id','read_index','chromosome']
+    key_cols = ['read_index']
     
     inference_dataset_builder = ReadDatasetBuilder(read_store,label_cols,key_cols,embedding_sources)
     inference_dataset = inference_dataset_builder.build()
@@ -179,8 +179,8 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     sample_dist_df = load_sample_dist_df(sample_id)
     cell_map_df = load_cell_map_df()
     
-    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
-    cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
+    sample_source = EmbeddingStore('sample_distribution',sample_dist_df,['chromosome','position'])
+    cell_map_source = EmbeddingStore('cell_map',cell_map_df,['chromosome','position'])
     
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
@@ -190,12 +190,12 @@ def get_sample_train_datasets(sample_id,add_normal=False):
         normal_read_data = get_sample_training_reads(normal_sample_id)
         read_data = polars.concat([read_data,normal_read_data])
 
-    label_cols = ['Sample_ID','Read_Index','Chromosome','Tumor_Read']
-    key_cols = ['Read_Index']
+    label_cols = ['sample_id','read_index','chromosome','tumor_read']
+    key_cols = ['read_index']
     
-    train_read_data = read_data.filter(polars.col("Chromosome").is_in(train_chromosomes))
-    test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
-    val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
+    train_read_data = read_data.filter(polars.col("chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
+    val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
 
 
     train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
@@ -210,12 +210,12 @@ def load_read_extent_store(sample_id:str):
     read_extent =read_parquet(read_extent_path)
     
     read_extent = read_extent.with_columns(
-    polars.col("Chromosome").cast(polars.Enum(CHROMOSOMES)),
-    polars.col("Read_Index").cast(polars.Categorical),
-    polars.col("Reference_Start").cast(polars.Int32),
-    polars.col("Reference_End").cast(polars.Int32)
+    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
+    polars.col("read_index").cast(polars.Categorical),
+    polars.col("reference_start").cast(polars.Int32),
+    polars.col("reference_end").cast(polars.Int32)
     )
-    read_extent = read_extent.drop(['Reference_Start','Reference_End'])
+    read_extent = read_extent.drop(['reference_start','reference_end'])
     return read_extent
 def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15000):
     RNG = np.random.default_rng(10125)
@@ -231,8 +231,8 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     sample_dist_df = load_sample_dist_df(sample_id)
     cell_map_df = load_cell_map_df()
     
-    sample_source = EmbeddingStore('Sample_Distribution',sample_dist_df,['Chromosome','Position'])
-    cell_map_source = EmbeddingStore('Cell_Map',cell_map_df,['Chromosome','Position'])
+    sample_source = EmbeddingStore('sample_distribution',sample_dist_df,['chromosome','position'])
+    cell_map_source = EmbeddingStore('cell_map',cell_map_df,['chromosome','position'])
     
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
@@ -240,28 +240,28 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     
     read_extent = load_read_extent_store(sample_id)
 
-    read_extent = read_extent.filter(polars.col("Read_Length") >= min_length)
+    read_extent = read_extent.filter(polars.col("read_length") >= min_length)
     read_extent = read_extent.with_columns(
-    polars.Series("Sampled_Read_Start", RNG.integers(
+    polars.Series("sampled_read_start", RNG.integers(
         0, 
-        read_extent["Read_Length"].to_numpy() -read_length
+        read_extent["read_length"].to_numpy() -read_length
     ))
     )
 
-    read_extent = read_extent.with_columns((polars.col('Sampled_Read_Start')+read_length).alias('Sampled_Read_End'))
+    read_extent = read_extent.with_columns((polars.col('sampled_read_start')+read_length).alias('sampled_read_end'))
     
     
-    read_data = read_data.join(read_extent,how='inner',on=['Read_Index','Chromosome'])
+    read_data = read_data.join(read_extent,how='inner',on=['read_index','chromosome'])
     
-    read_data = read_data.filter(polars.col("Read_Position").is_between(polars.col("Sampled_Read_Start"), polars.col("Sampled_Read_End"), closed="both"))
-    read_data = read_data.drop(['Read_Length','Sampled_Read_Start','Sampled_Read_End'])
+    read_data = read_data.filter(polars.col("read_position").is_between(polars.col("sampled_read_start"), polars.col("sampled_read_end"), closed="both"))
+    read_data = read_data.drop(['read_length','sampled_read_start','sampled_read_end'])
     
-    label_cols = ['Read_Index','Chromosome','Tumor_Read']
-    key_cols = ['Read_Index']
+    label_cols = ['read_index','chromosome','tumor_read']
+    key_cols = ['read_index']
     
-    train_read_data = read_data.filter(polars.col("Chromosome").is_in(train_chromosomes))
-    test_read_data = read_data.filter(polars.col("Chromosome").is_in(test_chromosomes))
-    val_read_data = read_data.filter(polars.col("Chromosome").is_in(val_chromosomes))
+    train_read_data = read_data.filter(polars.col("chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
+    val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
 
     train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
     test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)

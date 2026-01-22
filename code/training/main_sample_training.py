@@ -1,6 +1,6 @@
 import sys
 import shutil
-
+import torch
 import datahelper
 
 from pathlib import Path
@@ -38,6 +38,7 @@ def run_full_dataset_inference(train_result,out_sample_id,experiment_name,full_p
         out_path = full_predictions_dir/f"train_{experiment_name}_out_{run_id}_all_reads.parquet"
         predictions.write_parquet(out_path)
 if __name__ =="__main__":
+    torch.set_float32_matmul_precision('medium')
     log_dir = Path('/hot/user/tobybaker/ROCIT_Paper/models/main_models')
     main_predictions_dir = Path('/hot/user/tobybaker/ROCIT_Paper/predictions/main_predictions')
 
@@ -55,6 +56,7 @@ if __name__ =="__main__":
     experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],run_param['Add_Normal'])
+    
     clean_and_create_dir(log_dir/experiment_name)
     train_result = train(train_data_store,log_dir,experiment_name,training_params=None)
     

@@ -70,7 +70,7 @@ def load_snv_copies(dpclust_sample_id):
     dpinput_df = dpinput_df.select(['chr','end','no.chrs.bearing.mut'])
     
     dpinput_df = dpinput_df.rename({'chr':'chromosome','end':'position','no.chrs.bearing.mut':'n_copies'}  )
-    dpinput_df = dpinput_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome"))
+    dpinput_df = dpinput_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome").cast(pl.Categorical))
     return dpinput_df
 
 def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl.DataFrame:
@@ -97,7 +97,7 @@ def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl
         "most.likely.cluster": "cluster",
     })
 
-    cluster_assignment_df = cluster_assignment_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome"))
+    cluster_assignment_df = cluster_assignment_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome").cast(pl.Categorical))
     
     # Clean up: drop nulls
     cluster_assignment_df = cluster_assignment_df.drop_nulls()

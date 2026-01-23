@@ -27,7 +27,7 @@ def load_cn_ascat(sample_id):
     ascat_df = ascat_df.drop('sample')
     
     ascat_df = ascat_df.with_columns(
-    ("chr" + pl.col("chromosome").cast(pl.Utf8)).alias("chromosome"),
+    ("chr" + pl.col("chromosome").cast(pl.Utf8)).alias("chromosome").cast(pl.Categorical),
     (pl.col('major_cn')+pl.col('minor_cn')).alias('total_cn'),
     (pl.col('segment_end')-pl.col('segment_start')).alias('segment_length'),
     pl.lit(get_ascat_purity(sample_id)).alias('purity')
@@ -49,5 +49,6 @@ def load_cn_ascat(sample_id):
     return ascat_df
 def load_cn(sample_id,mode='ASCAT'):
     assert mode =='ASCAT'
-    return load_cn_ascat(sample_id)
+    cn_df =  load_cn_ascat(sample_id)
+    return cn_df
     

@@ -2,6 +2,8 @@ import polars as pl
 
 from pathlib import Path
 
+BASES = ['A','C','G','T']
+BASE_ENUM =  pl.Enum(['A','C','G','T'])
 def get_cancer_type(sample_id):
     if sample_id.startswith('BS'):
         return 'prostate'
@@ -87,23 +89,21 @@ def load_vcf(vcf_path: str, mode: str = 'deepsomatic', pass_filter: bool = True)
 
 
 def load_short_read_variants(sample_id):
-    bases =['A','C','G','T']
     sage_vcf_path = get_sage_vcf_path(sample_id)
     
     vcf = load_vcf(sage_vcf_path,mode='sage',pass_filter=False)
 
-    vcf = vcf.filter(pl.col('ref').is_in(bases))
-    vcf = vcf.filter(pl.col('alt').is_in(bases))
-    
+    vcf = vcf.filter(pl.col('ref').is_in(BASES))
+    vcf = vcf.filter(pl.col('alt').is_in(BASES))
+    vcf = vcf.with_columns(pl.col('chromosome').cast(pl.Categorical),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
     return vcf.select(['chromosome','position','ref','alt','filter'])
 
 
 def load_long_read_variants(sample_id):
-    bases =['A','C','G','T']
     sage_vcf_path = get_deepsomatic_vcf_path(sample_id)
     
     vcf = load_vcf(sage_vcf_path,mode='deepsomatic')
-    vcf = vcf.filter(pl.col('ref').is_in(bases))
-    vcf = vcf.filter(pl.col('alt').is_in(bases))
-
+    vcf = vcf.filter(pl.col('ref').is_in(BASES))
+    vcf = vcf.filter(pl.col('alt').is_in(BASES))
+    vcf = vcf.with_columns(pl.col('chromosome').cast(pl.Categorical),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
     return vcf.select(['chromosome','position','ref','alt','tumor_ref_count','tumor_alt_count','vaf'])

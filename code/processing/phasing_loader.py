@@ -37,7 +37,11 @@ def load_haploblocks(sample_id):
             'num_variants': 'n_variants'
         })
         .with_columns(
-            (pl.col('block_end') - pl.col('block_start')).alias('block_size')
+            (pl.col('block_end') - pl.col('block_start')).alias('block_size').cast(pl.Int32),
+            pl.col('chromosome').cast(pl.Categorical),
+            pl.col('block_start').cast(pl.Int32),
+            pl.col('block_end').cast(pl.Int32),
+            pl.col('n_variants').cast(pl.Int32)
         )
     )
     return haploblocks
@@ -66,4 +70,8 @@ def load_haplotags(sample_id):
     # Join back to filter the original dataframe using the snake_case key
     haplotags = haplotags.join(valid_reads, on='read_index', how='semi').sort('read_index')
 
+    haplotags = haplotags.with_columns(
+            pl.col('chromosome').cast(pl.Categorical),
+            pl.col('haplotag').cast(pl.Int8)
+        )
     return haplotags

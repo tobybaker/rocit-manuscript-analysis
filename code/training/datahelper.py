@@ -106,27 +106,27 @@ def load_read_data(filepath:str,scan=False):
         df = df.drop('strand')
     if 'read_count' in df.columns:
         df = df.drop('read_count')
-    df = df.filter(~polars.col("supplementary_alignment"))
+    if 'supplementary_alignment' in df.columns:
+        
+        df = df.filter(~polars.col("supplementary_alignment"))
+        df = df.drop('supplementary_alignment')
    
     df = df.unique(subset=['read_index','read_position'])
     return df
 
 def get_sample_training_reads(sample_id:str):
-    base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data')
-    if 'NL' in sample_id:
-        data_dir = base_dir/'labelled_read_dfs_normal_all_positions'
-    else:
-        data_dir = base_dir/'labelled_read_dfs_qc_ASCAT_all_positions'
+    base_dir =Path('/hot/user/tobybaker/ROCIT_Paper/input_data/labelled_data')
+    
     df_store = []
     with polars.StringCache():
-        for filepath in data_dir.glob(f'{sample_id}_labelled_reads*.parquet'):
-            df = load_read_data(filepath)
+        filepath = base_dir/f'{sample_id}_labelled_data.parquet'
+        df = load_read_data(filepath)
 
-            df = df.with_columns(
-                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
-            )
-            
-            df_store.append(df)
+        df = df.with_columns(
+            polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
+        )
+        
+        df_store.append(df)
     read_data = polars.concat(df_store)
     
     return read_data

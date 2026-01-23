@@ -209,8 +209,8 @@ if __name__ =="__main__":
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],add_normal=False)
     
     clean_and_create_dir(log_dir/experiment_name)
-    train_params = TrainingParams(max_epochs=1)
-    train_result = train_custom_input(train_data_store,log_dir,experiment_name,training_params=train_params,use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
+1)
+    train_result = train_custom_input(train_data_store,log_dir,experiment_name,training_params=None,use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
     
 
     run_sample_inference(train_result,run_param['Sample_ID'],experiment_name,sample_predictions_dir,run_param['Use_Cell_Map'], run_param['Use_Sample_Distribution'])

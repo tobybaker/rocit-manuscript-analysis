@@ -14,8 +14,170 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
 
-from rocit.models import ROCITModel,ROCITClassifier
+from rocit.models import ROCITClassifier
 from rocit.data import ROCITDataModule,ReadDataset,EmbeddingStore
+
+
+
+from torch.nn import BCEWithLogitsLoss
+from torch.optim import AdamW
+
+import torchmetrics
+from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryPrecision,
+    BinaryRecall,
+    BinaryF1Score,
+    BinaryAUROC,
+    BinaryMatthewsCorrCoef
+)
+
+
+class ROCITCustomModel(pl.LightningModule):
+    def __init__(
+        self,
+        model_dim:int,
+        model_heads:int,
+        model_layers:int,
+        lr: float| None=None,
+        warmup_steps: int| None = None,
+        threshold: float = 0.5,
+        sample_distribution_dim:int=19,
+        cell_map_dim:int=84,
+        noise_level:float=0.02,
+        use_cell_map:bool=False,
+        use_sample_distribution:bool=False
+    ):
+        super().__init__()
+
+        # ---- Core components ----
+        self.model = ROCITClassifierCustomInput(model_dim,model_heads,model_layers,sample_distribution_dim=sample_distribution_dim,cell_map_dim=cell_map_dim,noise_level=noise_level,use_cell_map=use_cell_map,use_sample_distribution=use_sample_distribution)
+
+        self.lr = lr
+        self.warmup_steps = warmup_steps
+        self.threshold = threshold
+        self.pos_weight = None 
+
+        self.loss_fn = BCEWithLogitsLoss(pos_weight=torch.tensor(1.0))
+
+      
+        metric_fns = {
+            "acc": BinaryAccuracy(threshold=threshold),
+            "precision": BinaryPrecision(threshold=threshold),
+            "recall": BinaryRecall(threshold=threshold),
+            "f1": BinaryF1Score(threshold=threshold),
+            "mcc":BinaryMatthewsCorrCoef(threshold=threshold),
+            "auroc": BinaryAUROC(),
+        }
+
+        self.train_metrics = torchmetrics.MetricCollection(
+            metric_fns, prefix="train_"
+        )
+        self.val_metrics = self.train_metrics.clone(prefix="val_")
+        self.test_metrics = self.train_metrics.clone(prefix="test_")
+
+        # Enables checkpoint re-loading
+        self.save_hyperparameters()
+
+    def setup(self, stage=None):
+        # datamodule is attached by the Trainer
+        if self.trainer.datamodule is None:
+            return
+        pos_weight = self.trainer.datamodule.pos_weight
+
+        self.loss_fn = torch.nn.BCEWithLogitsLoss(
+            pos_weight=pos_weight.to(self.device)
+        )
+
+
+    def forward(self, **inputs) -> torch.Tensor:
+        """
+        Returns logits of shape (B,)
+        """
+        
+        logits = self.model(**inputs)
+        
+        return logits
+
+    def _shared_step(self, batch):
+        labels = batch["tumor_read"].float()
+        logits = self(**batch)
+
+        loss = self.loss_fn(logits, labels)
+        probs = torch.sigmoid(logits)
+
+        return loss, probs, labels.int()
+
+
+    def training_step(self, batch, batch_idx):
+        loss, probs, labels = self._shared_step(batch)
+
+        self.train_metrics.update(probs, labels)
+        self.log(
+            "train_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+        )
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss, probs, labels = self._shared_step(batch)
+
+        self.val_metrics.update(probs, labels)
+        self.log("val_loss",loss)
+
+    def test_step(self, batch, batch_idx):
+        loss, probs, labels = self._shared_step(batch)
+
+        self.test_metrics.update(probs, labels)
+        self.log("test_loss", loss)
+
+    
+    def on_train_epoch_end(self):
+        self.log_dict(self.train_metrics.compute(), prog_bar=True)
+        self.train_metrics.reset()
+
+    def on_validation_epoch_end(self):
+        self.log_dict(self.val_metrics.compute(), prog_bar=True)
+        self.val_metrics.reset()
+
+    def on_test_epoch_end(self):
+        self.log_dict(self.test_metrics.compute())
+        self.test_metrics.reset()
+
+   
+    def predict_step(self, batch, batch_idx):
+        logits = self(**batch)
+        probs = torch.sigmoid(logits)
+
+        return_dict= {
+            "sample_id": batch['sample_id'],
+            "read_index": batch['read_index'],
+            "chromosome": batch['chromosome'],
+            "tumor_probability": probs.numpy(force=True)
+        }
+        if 'tumor_read' in batch:
+            return_dict['tumor_read'] = batch['tumor_read'].bool().numpy(force=True)
+        return return_dict
+
+    
+    def configure_optimizers(self):
+        optimizer = AdamW(self.parameters(), lr=self.lr)
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda i: min(i /(self.warmup_steps), 1.0))
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
+        }
+
 
 class ROCITClassifierCustomInput(ROCITClassifier):
 
@@ -100,7 +262,7 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
 
     warmup_steps = training_params.warmup_steps
 
-    model = ROCITModel(
+    model = ROCITCustomModel(
     model_dim=training_params.model_dim,
     model_heads=training_params.model_heads,
     model_layers=training_params.model_layers,
@@ -109,11 +271,12 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
     threshold=training_params.probability_threshold,
     sample_distribution_dim=training_params.sample_distribution_dim,
     cell_map_dim=training_params.cell_map_dim,
-    noise_level=training_params.noise_level
+    noise_level=training_params.noise_level,
+    use_cell_map = use_cell_map,
+    use_sample_distribution = use_sample_distribution
     )
 
     
-    model.model = ROCITClassifierCustomInput(training_params.model_dim,training_params.model_heads,training_params.model_layers,sample_distribution_dim=training_params.sample_distribution_dim,cell_map_dim=training_params.cell_map_dim,noise_level=training_params.noise_level,use_cell_map=use_cell_map,use_sample_distribution=use_sample_distribution)
     model.model.set_embedding_context(rocit_dataset.embedding_sources)
 
     trainer = pl.Trainer(
@@ -137,14 +300,7 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
 
 def predict_custom_input(inference_datastore,training_result,use_cell_map,use_sample_distribution,inference_batch_size:int=1024):
     
-    model = ROCITModel.load_from_checkpoint(training_result.best_checkpoint_path)
-
-    #switching models over 
-    state_dict = model.model.state_dict()
-
-    custom_model = ROCITClassifierCustomInput(model.model.emb,model.model.n_heads,model.model.n_blocks,use_cell_map=use_cell_map,use_sample_distribution=use_sample_distribution)
-    custom_model.load_state_dict(state_dict)
-    model.model = custom_model
+    model = ROCITCustomModel.load_from_checkpoint(training_result.best_checkpoint_path)
     
     model.model.set_embedding_context(inference_datastore.embedding_sources)
     trainer =pl.Trainer(accelerator="auto", devices=1)
@@ -200,7 +356,6 @@ if __name__ =="__main__":
     
     run_param = run_params[int(sys.argv[1])]
 
-
     experiment_name = f"{run_param['Sample_ID']}_use_cell_map_{run_param['Use_Cell_Map']}_use_sample_distribution_{run_param['Use_Sample_Distribution']}"
 
     sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}/{experiment_name}"
@@ -209,8 +364,8 @@ if __name__ =="__main__":
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],add_normal=False)
     
     clean_and_create_dir(log_dir/experiment_name)
-1)
-    train_result = train_custom_input(train_data_store,log_dir,experiment_name,training_params=None,use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
+
+    train_result = train_custom_input(train_data_store,log_dir,experiment_name,training_params=TrainingParams(max_epochs=1),use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
     
 
     run_sample_inference(train_result,run_param['Sample_ID'],experiment_name,sample_predictions_dir,run_param['Use_Cell_Map'], run_param['Use_Sample_Distribution'])

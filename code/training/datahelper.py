@@ -149,7 +149,8 @@ def get_sample_inference_reads(sample_id:str):
 
 def get_sample_inference_store(sample_id):
     
-    sample_dist_df = load_sample_dist_df(sample_id)
+    dist_id = normal_to_tumor_id(sample_id) if 'NL' in sample_id else sample_id
+    sample_dist_df = load_sample_dist_df(dist_id)
     cell_map_df = load_cell_map_df()
     
     sample_source = EmbeddingStore('sample_distribution',sample_dist_df,['chromosome','position'])
@@ -196,7 +197,6 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     train_read_data = read_data.filter(polars.col("chromosome").is_in(train_chromosomes))
     test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
     val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
-
 
     train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
     test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)

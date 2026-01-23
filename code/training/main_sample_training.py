@@ -48,6 +48,7 @@ if __name__ =="__main__":
 
     run_params = datahelper.get_run_params(param_config)
     run_param = run_params[int(sys.argv[1])]
+    print(run_param)
 
     sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'train_datasets')
@@ -56,7 +57,7 @@ if __name__ =="__main__":
     experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],run_param['Add_Normal'])
-    
+    exit()
     clean_and_create_dir(log_dir/experiment_name)
     train_result = train(train_data_store,log_dir,experiment_name,training_params=None)
     

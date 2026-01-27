@@ -5,16 +5,16 @@ from pathlib import Path
 
 
 def get_phasing_filepath(sample_id,mode):
-    phasing_dir =  Path('/hot/user/datkinson/merged_phasing/03_PHASING/')
+    phasing_dir =  Path('/hot/user/datkinson/merged_phasing/03_PHASING/TOPMED_001')
     sample_base,sample_type = sample_id.split('_')
     
     if 'BS' in sample_base:
         sample_base = sample_base.replace('BS','')
     
     if mode =='haploblocks':
-        suffix = '.PASS_dbSNP.blocks.tsv'
+        suffix = '.PASS_TOPMED001.blocks.tsv'
     if mode =='haplotags':
-        suffix = '.PASS_dbSNP.HapTags.tsv'
+        suffix = '.PASS_TOPMED001.HapTags.tsv'
     filepath = phasing_dir/f'{sample_base}{suffix}'
     return filepath
 

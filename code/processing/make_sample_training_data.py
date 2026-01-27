@@ -67,7 +67,6 @@ if __name__ =='__main__':
         pretrain_data = train_data.ROCITPreTrainData(sample_id,sample_bam_path,methylation_dir,sample_cn,long_read_variants,haplotags,haploblocks,cluster_labels,snv_cluster_assignments)
         
         read_labels = train_data.make_read_labels(pretrain_data)
-        
         labelled_data = train_data.get_labelled_methylation_data(pretrain_data.sample_methylation_dir,read_labels)
         
         out_path = out_dir/f'{sample_id}_labelled_data.parquet'

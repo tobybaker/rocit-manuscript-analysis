@@ -4,7 +4,7 @@ import torch
 import datahelper
 
 from pathlib import Path
-from rocit import train,predict,ROCITInferenceStore
+from rocit import train,predict,ROCITInferenceStore,TrainingParams
 
 
 def clean_and_create_dir(dir_path:Path):
@@ -46,9 +46,10 @@ if __name__ =="__main__":
     param_config['Sample_ID'] = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
     param_config['Add_Normal']  = [True,False]
 
+
     run_params = datahelper.get_run_params(param_config)
     run_param = run_params[int(sys.argv[1])]
-    print(run_param)
+    
 
     sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'train_datasets')
@@ -57,10 +58,10 @@ if __name__ =="__main__":
     experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],run_param['Add_Normal'])
-    exit()
+
     clean_and_create_dir(log_dir/experiment_name)
-    train_result = train(train_data_store,log_dir,experiment_name,training_params=None)
-    
+    training_params = TrainingParams(early_stopping_patience=5)
+    train_result = train(train_data_store,log_dir,experiment_name,training_params=training_params)
     
     run_full_dataset_inference(train_result,run_param['Sample_ID'],experiment_name,full_predictions_dir)
 

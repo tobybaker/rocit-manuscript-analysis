@@ -246,14 +246,14 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
     )
 
     early_stopping = EarlyStopping(
-    monitor="val_loss",
+    monitor="val_auroc",
     patience=training_params.early_stopping_patience,
-    mode="min",
+    mode="max",
     )
 
     checkpointing = ModelCheckpoint(
-        monitor="val_loss",
-        mode="min",
+        monitor="val_auroc",
+        mode="max",
         save_top_k=1,
         filename="best-checkpoint",
     )
@@ -335,8 +335,6 @@ def run_sample_inference(train_result,out_sample_id,experiment_name,train_predic
         inference_store = ROCITInferenceStore(dataset,train_data_store.embedding_sources)
         predictions = predict_custom_input(inference_store,train_result,use_cell_map,use_sample_distribution)
 
-        
-        
         predictions.write_parquet(out_path)
 
 if __name__ =="__main__":
@@ -365,7 +363,7 @@ if __name__ =="__main__":
     
     clean_and_create_dir(log_dir/experiment_name)
 
-    train_result = train_custom_input(train_data_store,log_dir,experiment_name,training_params=TrainingParams(max_epochs=1),use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
+    train_result = train_custom_input(train_data_store,log_dir,experiment_name,use_cell_map=run_param['Use_Cell_Map'],use_sample_distribution=run_param['Use_Sample_Distribution'])
     
 
     run_sample_inference(train_result,run_param['Sample_ID'],experiment_name,sample_predictions_dir,run_param['Use_Cell_Map'], run_param['Use_Sample_Distribution'])

@@ -34,6 +34,8 @@ def load_cell_map_df():
     cell_map_df = cell_map_df.with_columns(
     polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
     )
+
+    print(cell_map_df.sample(50))
     return cell_map_df
     
 def load_sample_dist_df(sample_id):
@@ -48,7 +50,8 @@ def load_sample_dist_df(sample_id):
     polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
     #polars.col("sample_id").cast(polars.Categorical)
     )
-
+    
+    
     return sample_dist_df
         
 #hack for pandas
@@ -110,10 +113,33 @@ def load_read_data(filepath:str,scan=False):
         
         df = df.filter(~polars.col("supplementary_alignment"))
         df = df.drop('supplementary_alignment')
-   
-    df = df.unique(subset=['read_index','read_position'])
+    if 'read_position' in df.columns:
+        df = df.unique(subset=['read_index','read_position'])
+    
     return df
 
+def get_old_sample_training_reads(sample_id:str):
+    base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data')
+    if 'NL' in sample_id:
+        data_dir = base_dir/'labelled_read_dfs_normal'
+    else:
+        data_dir = base_dir/'labelled_read_dfs_qc_ASCAT'
+    df_store = []
+    with polars.StringCache():
+        for filepath in data_dir.glob(f'{sample_id}_labelled_reads*.parquet'):
+            df = load_read_data(filepath)
+
+            df = df.with_columns(
+                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
+            )
+            
+            df_store.append(df)
+    read_data = polars.concat(df_store).drop_nulls()
+    
+    read_data = read_data.with_columns(polars.col('position').alias('read_position').cast(polars.Int32))
+    read_data = read_data.unique(subset=['read_index','read_position'])
+    
+    return read_data
 def get_sample_training_reads(sample_id:str):
     base_dir =Path('/hot/user/tobybaker/ROCIT_Paper/input_data/labelled_data')
     
@@ -128,6 +154,8 @@ def get_sample_training_reads(sample_id:str):
         
         df_store.append(df)
     read_data = polars.concat(df_store)
+    
+
     
     return read_data
 
@@ -144,7 +172,7 @@ def get_sample_inference_reads(sample_id:str):
             )
 
             read_store.append(df)
-            
+    
     return read_store
 
 def get_sample_inference_store(sample_id):
@@ -186,9 +214,13 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
     read_data = get_sample_training_reads(sample_id)
+    
+    #read_data = get_old_sample_training_reads(sample_id)
+
     if add_normal:
         normal_sample_id = f'{sample_id.split("_")[0]}_NL'
         normal_read_data = get_sample_training_reads(normal_sample_id)
+        #normal_read_data = get_old_sample_training_reads(normal_sample_id)
         read_data = polars.concat([read_data,normal_read_data])
 
     label_cols = ['sample_id','read_index','chromosome','tumor_read']
@@ -198,11 +230,13 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
     val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
 
+    
+
     train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
     test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)
     val_dataset_builder = ReadDatasetBuilder(val_read_data,label_cols,key_cols,embedding_sources)
     
-    return rocit.ROCITTrainStore(train_dataset_builder.build(),test_dataset_builder.build(),val_dataset_builder.build(),embedding_sources)
+    return rocit.ROCITTrainStore(train_dataset_builder.build(),val_dataset_builder.build(),test_dataset_builder.build(),embedding_sources)
 
 def load_read_extent_store(sample_id:str):
     read_extent_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/read_extent')
@@ -267,5 +301,5 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)
     val_dataset_builder = ReadDatasetBuilder(val_read_data,label_cols,key_cols,embedding_sources)
     
-    return rocit.ROCITTrainStore(train_dataset_builder.build(),test_dataset_builder.build(),val_dataset_builder.build(),embedding_sources)
+    return rocit.ROCITTrainStore(train_dataset_builder.build(),val_dataset_builder.build(),test_dataset_builder.build(),embedding_sources)
 

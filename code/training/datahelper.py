@@ -6,7 +6,7 @@ import datahelper
 import rocit
 import itertools
 from rocit.data import EmbeddingStore,ReadDatasetBuilder
-from torch.utils.data import Dataset, DataLoader
+
 
 def get_run_params(param_config):
     param_names = list(param_config.keys())
@@ -35,7 +35,6 @@ def load_cell_map_df():
     polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
     )
 
-    print(cell_map_df.sample(50))
     return cell_map_df
     
 def load_sample_dist_df(sample_id):

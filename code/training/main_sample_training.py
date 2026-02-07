@@ -44,18 +44,18 @@ if __name__ =="__main__":
 
     param_config = {}
     param_config['Sample_ID'] = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
-    param_config['Add_Normal']  = [True,False]
+    param_config['Add_Normal']  = [False,True]
 
 
     run_params = datahelper.get_run_params(param_config)
     run_param = run_params[int(sys.argv[1])]
     
 
-    sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
+    sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}_RUN_2"
     train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'train_datasets')
     full_predictions_dir = clean_and_create_dir(sample_predictions_dir/'full_datasets')
     
-    experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
+    experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}_RUN_2"
     
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],run_param['Add_Normal'])
 

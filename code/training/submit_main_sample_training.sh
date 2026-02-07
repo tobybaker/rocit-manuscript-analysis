@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=trainsimple       
-#SBATCH --partition=NC24adsA100 
+#SBATCH --partition=NC24adsA100,NC24adsA100_8TB
 #SBATCH --nodes=1
 #SBATCH --time=12:30:00 
 #SBATCH --mem=0

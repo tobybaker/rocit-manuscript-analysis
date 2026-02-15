@@ -11,11 +11,8 @@ def get_dpclust_sample_id(sample_id:str):
 
 
     
-def load_cluster_labels(
+def load_clusters(
     sample_id: str,
-    min_clonal_cluster: float = 0.9,
-    max_clonal_cluster: float = 1.1,
-    min_clonal_fraction: float = 0.3,
 ) -> pl.DataFrame:
     
     dpclust_sample_id = get_dpclust_sample_id(sample_id)
@@ -32,29 +29,12 @@ def load_cluster_labels(
         (pl.col("no.of.mutations") / total_mutations).alias("cluster_fraction"),
     )
 
-    # Define clonal cluster criteria
-    is_clonal = (
-        pl.col("location").is_between(min_clonal_cluster, max_clonal_cluster)
-        & (pl.col("frac_mutations") > min_clonal_fraction)
-    )
-    is_above_clonal = pl.col("location") >= max_clonal_cluster
-
-    # Assign cluster labels
-    cluster_label_expr = (
-        pl.when(is_clonal).then(pl.lit("Pass_Clonal"))
-        .when(is_above_clonal).then(pl.lit("Fail"))
-        .otherwise(pl.lit("Pass"))
-        .alias("cluster_label")
-    )
-    cluster_info = cluster_info.with_columns(cluster_label_expr)
-
-    # Rename and select final columns
     cluster_info = cluster_info.rename({
-        "cluster.no": "cluster",
+        "cluster.no": "cluster_id",
         "location": "cluster_ccf",
     })
 
-    return cluster_info.select(["cluster", "cluster_label", "cluster_ccf", "cluster_fraction"])
+    return cluster_info.select(["cluster_id", "cluster_ccf", "cluster_fraction"])
 
 def get_dpinput_path(dpclust_sample_id):
     in_dir = DPCLUST_DIR /dpclust_sample_id
@@ -73,7 +53,7 @@ def load_snv_copies(dpclust_sample_id):
     dpinput_df = dpinput_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome").cast(pl.Categorical))
     return dpinput_df
 
-def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl.DataFrame:
+def load_cluster_assignments(sample_id: str, clusters: pl.DataFrame) -> pl.DataFrame:
     dpclust_sample_id = get_dpclust_sample_id(sample_id)
 
     sample_dir = DPCLUST_DIR/dpclust_sample_id
@@ -94,7 +74,7 @@ def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl
     ).rename({
         "chr": "chromosome",
         "end": "position",
-        "most.likely.cluster": "cluster",
+        "most.likely.cluster": "cluster_id",
     })
 
     cluster_assignment_df = cluster_assignment_df.with_columns(("chr" + pl.col("chromosome")).alias("chromosome").cast(pl.Categorical))
@@ -104,12 +84,12 @@ def load_cluster_assignments(sample_id: str, cluster_labels: pl.DataFrame) -> pl
 
     # Merge with cluster labels
     cluster_assignment_df = cluster_assignment_df.join(
-        cluster_labels,
-        on="cluster",
+        clusters,
+        on="cluster_id",
         how="inner",
     )
 
-    cluster_assignment_df= cluster_assignment_df.select(["chromosome", "position", "cluster_label"])
+    cluster_assignment_df= cluster_assignment_df.select(["chromosome", "position", "cluster_id"])
 
     n_copies_df = load_snv_copies(dpclust_sample_id)
     

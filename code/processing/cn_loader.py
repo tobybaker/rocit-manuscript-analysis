@@ -2,10 +2,13 @@ import polars as pl
 
 from pathlib import Path
 
-
+ASCAT_DIR = Path('/hot/user/ngarciadutton/rocit_results/ascat_3.2')
 def get_ascat_cn_path(sample_id):
-    ascat_dir = Path('/hot/user/ngarciadutton/rocit_results/ascat_3.2')
-    sample_path =  ascat_dir/f'{sample_id}.segments.txt'
+    sample_path =  ASCAT_DIR/f'{sample_id}.segments.txt'
+    return sample_path
+
+def get_ascat_purity_path(sample_id):
+    sample_path =  ASCAT_DIR/f'{sample_id.split("_")[0]}_purity_ploidy.txt'
     return sample_path
 
 def get_sample_sex(sample_id:str):
@@ -14,8 +17,9 @@ def get_sample_sex(sample_id:str):
     return 'XX'
 
 def get_ascat_purity(sample_id):
-    sample_purity_lookup = {'BS14772_TU':0.42,'BS15145_TU':0.51,'264_TU':0.83,'216_TU':0.9,'244_TU':0.46,'053_TU':0.57,'192_TU':0.77}
-    return sample_purity_lookup[sample_id]
+    purity_path = get_ascat_purity_path(sample_id)
+    purity = pl.read_csv(purity_path,separator='\t')['purity'][0]
+    return purity
 
 def load_cn_ascat(sample_id):
     cancer_type = 'prostate' if 'BS' in sample_id else 'ovarian'

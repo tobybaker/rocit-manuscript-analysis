@@ -6,7 +6,7 @@ import cluster_loader
 import phasing_loader
 import variant_loader
 from pathlib import Path
-from rocit.preprocessing import train_data
+from rocit.preprocessing import train_data_processor
 
 def get_short_read_variant_filter_type(sample_id:str):
     if sample_id.startswith('BS'):
@@ -45,7 +45,7 @@ if __name__ =='__main__':
     with pl.StringCache():
         sample_cn = cn_loader.load_cn(sample_id)
         
-        cluster_labels = cluster_loader.load_cluster_labels(sample_id)
+        clusters = cluster_loader.load_clusters(sample_id)
 
         if sample_id.startswith('BS'):
             snv_cluster_assignments = None
@@ -55,19 +55,18 @@ if __name__ =='__main__':
         haplotags = phasing_loader.load_haplotags(sample_id)
         haploblocks = phasing_loader.load_haploblocks(sample_id)
         
-        
-        long_read_variants = variant_loader.load_long_read_variants(sample_id)
-        
+        long_read_variants = variant_loader.load_long_read_variants(sample_id)  
         short_read_variants = variant_loader.load_short_read_variants(sample_id)
-
+        
         long_read_variants = run_short_read_filtering(sample_id,long_read_variants,short_read_variants)
+        
         sample_bam_path = get_bam_path(sample_id)
 
         methylation_dir = get_methylation_dir(sample_id)
-        pretrain_data = train_data.ROCITPreTrainData(sample_id,sample_bam_path,methylation_dir,sample_cn,long_read_variants,haplotags,haploblocks,cluster_labels,snv_cluster_assignments)
+        pretrain_data = train_data_processor.ROCITPreTrainData(sample_id,sample_bam_path,methylation_dir,sample_cn,long_read_variants,haplotags,haploblocks,cluster_labels,snv_cluster_assignments)
         
-        read_labels = train_data.make_read_labels(pretrain_data)
-        labelled_data = train_data.get_labelled_methylation_data(pretrain_data.sample_methylation_dir,read_labels)
+        read_labels = train_data_processor.make_read_labels(pretrain_data)
+        labelled_data = train_data_processor.get_labelled_methylation_data(pretrain_data.sample_methylation_dir,read_labels)
         
         out_path = out_dir/f'{sample_id}_labelled_data.parquet'
         labelled_data.sink_parquet(out_path)
@@ -75,6 +74,6 @@ if __name__ =='__main__':
         normal_id = get_normal_id(sample_id)
         normal_methylation_dir = get_methylation_dir(normal_id)
 
-        normal_labelled_data = train_data.get_subsampled_methylation_data(normal_methylation_dir,subsample_rate=0.05)
+        normal_labelled_data = train_data_processor.get_subsampled_methylation_data(normal_methylation_dir,subsample_rate=0.05)
         normal_out_path = out_dir/f'{normal_id}_labelled_data.parquet'
         normal_labelled_data.sink_parquet(normal_out_path)

@@ -13,11 +13,8 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-
 from rocit.models import ROCITClassifier
 from rocit.data import ROCITDataModule,ReadDataset,EmbeddingStore
-
-
 
 from torch.nn import BCEWithLogitsLoss
 from torch.optim import AdamW
@@ -31,7 +28,6 @@ from torchmetrics.classification import (
     BinaryAUROC,
     BinaryMatthewsCorrCoef
 )
-
 
 class ROCITCustomModel(pl.LightningModule):
     def __init__(

@@ -1,4 +1,4 @@
-import polars
+import polars as pl
 import numpy as np
 from pathlib import Path
 import sys
@@ -16,7 +16,12 @@ def get_run_params(param_config):
         dict(zip(param_names, combination))
         for combination in itertools.product(*param_values)
     ]
-CHROMOSOMES  = [f'chr{x}' for x in range(1,23)] +['chrX','chrY','chrM']
+CHROMOSOMES  = [f'chr{x}' for x in range(1,23)] +['chrX','chrY']
+
+USE_CHROMOSOMES = [f'chr{x}' for x in range(1,23)] +['chrX']
+TEST_CHROMOSOMES = ['chr4','chr21']
+VAL_CHROMOSOMES = ['chr5','chr22']
+NON_TRAIN_CHROMOSOMES = set(TEST_CHROMOSOMES) | set(VAL_CHROMOSOMES)
 def tumor_to_normal_id(tumor_id):
     if not 'TU' in tumor_id:
         raise ValueError(f'{tumor_id} is not a tumor id.')
@@ -26,43 +31,41 @@ def normal_to_tumor_id(normal_id):
     if not 'NL' in normal_id:
         raise ValueError(f'{normal_id} is not a normal id.')
     return normal_id.replace('NL','TU')
-def load_cell_map_df():
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data')
-    cell_type_path = base_dir/'complete_cell_type_methylation_with_average_only.parquet'
-    cell_map_df = read_parquet(cell_type_path)
+def load_cell_map_df(scan=False):
+    base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/')
     
+    cell_type_path = base_dir/'cell_type_average_methylation_atlas.parquet'
+    cell_map_df = read_parquet(cell_type_path,scan=scan)
+    print(cell_map_df)
     cell_map_df = cell_map_df.with_columns(
-    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
+    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
     )
 
     return cell_map_df
     
-def load_sample_dist_df(sample_id):
+def load_sample_dist_df(sample_id,scan=False):
     base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_distributions/tumor')
 
     sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
-    sample_dist_df = read_parquet(sample_dist_path)
+    sample_dist_df = read_parquet(sample_dist_path,scan=scan)
     
-    #sample_dist_df = sample_dist_df.with_columns(polars.lit(sample_id).alias("sample_id"))
-
     sample_dist_df = sample_dist_df.with_columns(
-    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
-    #polars.col("sample_id").cast(polars.Categorical)
+    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
+
     )
-    
     
     return sample_dist_df
         
 #hack for pandas
 def read_parquet(filepath:str,scan:bool=False):
     if scan:
-        df = polars.scan_parquet(filepath)
+        df = pl.scan_parquet(filepath)
     else:
-        df = polars.read_parquet(filepath)
+        df = pl.read_parquet(filepath)
     df = df.drop([c for c in df.columns if c.startswith("__index_level_")])
     return df
 
-def inspect_memory(df: polars.DataFrame) -> None:
+def inspect_memory(df: pl.DataFrame) -> None:
     """
     Prints memory usage per column (descending).
     Truncates verbose Enum/Categorical type descriptions.
@@ -78,9 +81,9 @@ def inspect_memory(df: polars.DataFrame) -> None:
         size_mb = df[col].estimated_size() / (1024**2)
         
         # Clean up ugly Enum/Categorical print output
-        if isinstance(dtype, polars.Enum):
+        if isinstance(dtype, pl.Enum):
             type_str = "Enum"
-        elif isinstance(dtype, polars.Categorical):
+        elif isinstance(dtype, pl.Categorical):
             type_str = "Categorical"
         else:
             type_str = str(dtype)
@@ -97,63 +100,41 @@ def load_read_data(filepath:str,scan=False):
     df = read_parquet(filepath,scan=scan)
     
     df = df.with_columns(
-    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
-    polars.col("methylation").cast(polars.UInt8),
-    polars.col("read_index").cast(polars.Categorical)
+    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
+    pl.col("methylation").cast(pl.UInt8),
+    pl.col("read_index").cast(pl.Categorical)
     )
     
     if 'tumor_read' in df.columns:
-        df = df.with_columns(polars.col("tumor_read").cast(polars.Boolean))
+        df = df.with_columns(pl.col("tumor_read").cast(pl.Boolean))
     if 'strand' in df.columns:
         df = df.drop('strand')
     if 'read_count' in df.columns:
         df = df.drop('read_count')
     if 'supplementary_alignment' in df.columns:
         
-        df = df.filter(~polars.col("supplementary_alignment"))
+        df = df.filter(~pl.col("supplementary_alignment"))
         df = df.drop('supplementary_alignment')
     if 'read_position' in df.columns:
         df = df.unique(subset=['read_index','read_position'])
     
     return df
 
-def get_old_sample_training_reads(sample_id:str):
-    base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data')
-    if 'NL' in sample_id:
-        data_dir = base_dir/'labelled_read_dfs_normal'
-    else:
-        data_dir = base_dir/'labelled_read_dfs_qc_ASCAT'
-    df_store = []
-    with polars.StringCache():
-        for filepath in data_dir.glob(f'{sample_id}_labelled_reads*.parquet'):
-            df = load_read_data(filepath)
 
-            df = df.with_columns(
-                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
-            )
-            
-            df_store.append(df)
-    read_data = polars.concat(df_store).drop_nulls()
-    
-    read_data = read_data.with_columns(polars.col('position').alias('read_position').cast(polars.Int32))
-    read_data = read_data.unique(subset=['read_index','read_position'])
-    
-    return read_data
 def get_sample_training_reads(sample_id:str):
     base_dir =Path('/hot/user/tobybaker/ROCIT_Paper/input_data/labelled_data')
     
     df_store = []
-    with polars.StringCache():
+    with pl.StringCache():
         filepath = base_dir/f'{sample_id}_labelled_data.parquet'
         df = load_read_data(filepath)
 
         df = df.with_columns(
-            polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
+            pl.lit(sample_id).cast(pl.Categorical).alias("sample_id")
         )
         
         df_store.append(df)
-    read_data = polars.concat(df_store)
-    
+    read_data = pl.concat(df_store)
 
     
     return read_data
@@ -163,11 +144,11 @@ def get_sample_inference_reads(sample_id:str):
     data_dir = base_dir/ sample_id
     
     read_store = []
-    with polars.StringCache():
+    with pl.StringCache():
         for filepath in data_dir.glob(f'cpg_methylation_data_*.parquet'):
             df = load_read_data(filepath,scan=True)
             df = df.with_columns(
-                polars.lit(sample_id).cast(polars.Categorical).alias("sample_id")
+                pl.lit(sample_id).cast(pl.Categorical).alias("sample_id")
             )
 
             read_store.append(df)
@@ -196,13 +177,10 @@ def get_sample_inference_store(sample_id):
     return rocit.ROCITInferenceStore(inference_dataset,embedding_sources)
 
 def get_sample_train_datasets(sample_id,add_normal=False):
-    all_chromosomes = [f'chr{x}' for x in range(1,23)] +['chrX']
-    test_chromosomes = ['chr4','chr21']
-    val_chromosomes = ['chr5','chr22']
-    non_train_chromosomes = set(test_chromosomes) | set(val_chromosomes)
+    
 
     # Filter the list
-    train_chromosomes = [chrom for chrom in all_chromosomes if chrom not in non_train_chromosomes]
+    train_chromosomes = [chrom for chrom in USE_CHROMOSOMES if chrom not in NON_TRAIN_CHROMOSOMES]
 
     sample_dist_df = load_sample_dist_df(sample_id)
     cell_map_df = load_cell_map_df()
@@ -220,14 +198,14 @@ def get_sample_train_datasets(sample_id,add_normal=False):
         normal_sample_id = f'{sample_id.split("_")[0]}_NL'
         normal_read_data = get_sample_training_reads(normal_sample_id)
         #normal_read_data = get_old_sample_training_reads(normal_sample_id)
-        read_data = polars.concat([read_data,normal_read_data])
+        read_data = pl.concat([read_data,normal_read_data])
 
     label_cols = ['sample_id','read_index','chromosome','tumor_read']
     key_cols = ['read_index']
     
-    train_read_data = read_data.filter(polars.col("chromosome").is_in(train_chromosomes))
-    test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
-    val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
+    train_read_data = read_data.filter(pl.col("chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(pl.col("chromosome").is_in(TEST_CHROMOSOMES))
+    val_read_data = read_data.filter(pl.col("chromosome").is_in(VAL_CHROMOSOMES))
 
     
 
@@ -243,23 +221,23 @@ def load_read_extent_store(sample_id:str):
     read_extent =read_parquet(read_extent_path)
     
     read_extent = read_extent.with_columns(
-    polars.col("chromosome").cast(polars.Enum(CHROMOSOMES)),
-    polars.col("read_index").cast(polars.Categorical),
-    polars.col("reference_start").cast(polars.Int32),
-    polars.col("reference_end").cast(polars.Int32)
+    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
+    pl.col("read_index").cast(pl.Categorical),
+    pl.col("reference_start").cast(pl.Int32),
+    pl.col("reference_end").cast(pl.Int32)
     )
     read_extent = read_extent.drop(['reference_start','reference_end'])
     return read_extent
 def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15000):
     RNG = np.random.default_rng(10125)
     
-    all_chromosomes = [f'chr{x}' for x in range(1,23)] +['chrX']
-    test_chromosomes = ['chr4','chr21']
-    val_chromosomes = ['chr5','chr22']
-    non_train_chromosomes = set(test_chromosomes) | set(val_chromosomes)
+    USE_CHROMOSOMES = [f'chr{x}' for x in range(1,23)] +['chrX']
+    TEST_CHROMOSOMES = ['chr4','chr21']
+    VAL_CHROMOSOMES = ['chr5','chr22']
+    NON_TRAIN_CHROMOSOMES = set(TEST_CHROMOSOMES) | set(VAL_CHROMOSOMES)
 
     # Filter the list
-    train_chromosomes = [chrom for chrom in all_chromosomes if chrom not in non_train_chromosomes]
+    train_chromosomes = [chrom for chrom in USE_CHROMOSOMES if chrom not in NON_TRAIN_CHROMOSOMES]
 
     sample_dist_df = load_sample_dist_df(sample_id)
     cell_map_df = load_cell_map_df()
@@ -273,28 +251,28 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     
     read_extent = load_read_extent_store(sample_id)
 
-    read_extent = read_extent.filter(polars.col("read_length") >= min_length)
+    read_extent = read_extent.filter(pl.col("read_length") >= min_length)
     read_extent = read_extent.with_columns(
-    polars.Series("sampled_read_start", RNG.integers(
+    pl.Series("sampled_read_start", RNG.integers(
         0, 
         read_extent["read_length"].to_numpy() -read_length
     ))
     )
 
-    read_extent = read_extent.with_columns((polars.col('sampled_read_start')+read_length).alias('sampled_read_end'))
+    read_extent = read_extent.with_columns((pl.col('sampled_read_start')+read_length).alias('sampled_read_end'))
     
     
     read_data = read_data.join(read_extent,how='inner',on=['read_index','chromosome'])
     
-    read_data = read_data.filter(polars.col("read_position").is_between(polars.col("sampled_read_start"), polars.col("sampled_read_end"), closed="both"))
+    read_data = read_data.filter(pl.col("read_position").is_between(pl.col("sampled_read_start"), pl.col("sampled_read_end"), closed="both"))
     read_data = read_data.drop(['read_length','sampled_read_start','sampled_read_end'])
     
     label_cols = ['read_index','chromosome','tumor_read']
     key_cols = ['read_index']
     
-    train_read_data = read_data.filter(polars.col("chromosome").is_in(train_chromosomes))
-    test_read_data = read_data.filter(polars.col("chromosome").is_in(test_chromosomes))
-    val_read_data = read_data.filter(polars.col("chromosome").is_in(val_chromosomes))
+    train_read_data = read_data.filter(pl.col("chromosome").is_in(train_chromosomes))
+    test_read_data = read_data.filter(pl.col("chromosome").is_in(TEST_CHROMOSOMES))
+    val_read_data = read_data.filter(pl.col("chromosome").is_in(VAL_CHROMOSOMES))
 
     train_dataset_builder = ReadDatasetBuilder(train_read_data,label_cols,key_cols,embedding_sources)
     test_dataset_builder = ReadDatasetBuilder(test_read_data,label_cols,key_cols,embedding_sources)

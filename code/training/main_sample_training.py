@@ -19,7 +19,7 @@ def run_training_inference(train_result,out_sample_ids,experiment_name,train_pre
         dataset_iter = [('train',train_data_store.train_dataset),('test',train_data_store.test_dataset),('val',train_data_store.val_dataset)]
         for dataset_name,dataset in dataset_iter:
             inference_store = ROCITInferenceStore(dataset,train_data_store.embedding_sources)
-            predictions = predict(inference_store,train_result)
+            predictions = predict(inference_store,train_result.best_checkpoint_path)
 
             out_path = train_predictions_dir/f"train_{experiment_name}_out_{out_sample_id}_{dataset_name}_dataset.parquet"
             

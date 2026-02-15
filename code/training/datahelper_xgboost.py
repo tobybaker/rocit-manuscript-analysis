@@ -2,46 +2,22 @@ import sys
 import polars as pl
 import numpy as np
 from pathlib import Path
+import datahelper
 
-CHROMOSOMES  = [f'chr{x}' for x in range(1,23)] +['chrX','chrY','chrM']
+
 METHYLATION_SCALE = 256
-
-def load_sample_dist_df(sample_id:str):
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_distributions/tumor')
-
-    sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
-    sample_dist_df = pl.scan_parquet(sample_dist_path)
-    
-    #sample_dist_df = sample_dist_df.with_columns(polars.lit(sample_id).alias("sample_id"))
-
-    sample_dist_df = sample_dist_df.with_columns(
-    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
-    #polars.col("sample_id").cast(polars.Categorical)
-    )
-    sample_dist_df = sample_dist_df.drop_nulls()
-    
-    return sample_dist_df
-        
+ 
 def get_aggregate_read_distribution(methylation_df):
 
     percentiles = np.arange(5,100,5)/100.0
     methylation_df = methylation_df.with_columns(
         
     )
-    aggregate_methylation_df = methylation_df.group_by(['chromosome','read_index']).agg((pl.col("methylation").quantile(p).cast(pl.Float32).alias(f"methylation_percentile_{int(p * 100)}") for p in percentiles)).sort(['chromosome','read_index'])
-    n_cpgs =  methylation_df.group_by(['chromosome','read_index']).len().rename({'len':'n_cpgs'})
-    aggregate_methylation_df = aggregate_methylation_df.join(n_cpgs,how='inner',coalesce=True,on=['chromosome','read_index'])
+    aggregate_methylation_df = methylation_df.group_by(['chromosome','read_index','tumor_read']).agg((pl.col("methylation").quantile(p).cast(pl.Float32).alias(f"methylation_percentile_{int(p * 100)}") for p in percentiles)).sort(['chromosome','read_index'])
+    n_cpgs =  methylation_df.group_by(['chromosome','read_index','tumor_read']).len().rename({'len':'n_cpgs'})
+    aggregate_methylation_df = aggregate_methylation_df.join(n_cpgs,how='inner',coalesce=True,on=['chromosome','read_index','tumor_read'])
     return aggregate_methylation_df
-def load_cell_map_df():
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data')
-    cell_type_path = base_dir/'complete_cell_type_methylation_with_average_only.parquet'
-    cell_map_df = pl.scan_parquet(cell_type_path)
-    
-    cell_map_df = cell_map_df.with_columns(
-    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
-    )
 
-    return cell_map_df
 def load_sample_labelled_reads(sample_id:str):
     in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/labelled_data')
     filename = f'{sample_id}_labelled_data.parquet'
@@ -49,7 +25,7 @@ def load_sample_labelled_reads(sample_id:str):
     filepath = in_dir/filename
     in_df =  pl.scan_parquet(filepath)
     in_df = in_df.with_columns(
-    pl.col("chromosome").cast(pl.Enum(CHROMOSOMES)),
+    pl.col("chromosome").cast(pl.Enum(datahelper.CHROMOSOMES)),
     pl.col("methylation").cast(pl.Float32)/METHYLATION_SCALE + 0.5/METHYLATION_SCALE
     )
     return in_df
@@ -79,8 +55,9 @@ def get_aggregate_cell_map_distribution(sample_labelled_reads,cell_map,methylati
 
 def get_training_data(sample_id):
     sample_labelled_reads = load_sample_labelled_reads(sample_id)
-    cell_map = load_cell_map_df()
-    sample_dist = load_sample_dist_df(sample_id)
+    cell_map = datahelper.load_cell_map_df(scan=True)
+    sample_dist = datahelper.load_sample_dist_df(sample_id,scan=True)
+    sample_dist = sample_dist.drop_nulls()
     
     read_distribution = get_aggregate_read_distribution(sample_labelled_reads)
     cell_map_distribution = get_aggregate_cell_map_distribution(sample_labelled_reads,cell_map)
@@ -88,5 +65,24 @@ def get_training_data(sample_id):
     
     overall_distribution = read_distribution.join(cell_map_distribution,how='full',on=['chromosome','read_index'],coalesce=True)
     overall_distribution = overall_distribution.join(relative_distribution,how='full',on=['chromosome','read_index'],coalesce=True)
-    return overall_distribution
 
+    overall_distribution = overall_distribution.collect()
+    train_data = overall_distribution.filter(~pl.col('chromosome').is_in(datahelper.NON_TRAIN_CHROMOSOMES))
+    val_data = overall_distribution.filter(pl.col('chromosome').is_in(datahelper.VAL_CHROMOSOMES))
+    test_data = overall_distribution.filter(pl.col('chromosome').is_in(datahelper.TEST_CHROMOSOMES))
+    return train_data,val_data,test_data
+
+def training_df_to_dict(df,mode):
+    out_dict = {}
+    
+    out_dict[f'y_{mode}'] = df['tumor_read'].to_numpy()
+    df_array = df.drop(['chromosome','read_index','tumor_read']).to_numpy()
+    out_dict[f'X_{mode}'] = df_array
+    return out_dict
+def get_training_data_dict(sample_id):
+    train_data,val_data,test_data = get_training_data(sample_id)
+    training_data_dict = {}
+    training_data_dict.update(training_df_to_dict(train_data,'train'))
+    training_data_dict.update(training_df_to_dict(test_data,'test'))
+    training_data_dict.update(training_df_to_dict(val_data,'val'))
+    return training_data_dict

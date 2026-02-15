@@ -89,7 +89,7 @@ class BatchProcesser:
 
 
     MIN_L0_PENALTY =0.0
-    L0_WARMUP_STEPS = 1000
+    L0_WARMUP_STEPS = 975
     NO_L0_STEPS = 25
     MAX_PERTURBING_NOISE =0.1
 
@@ -127,7 +127,7 @@ class BatchProcesser:
         return annealed_penalty*l0_loss
 
     def compute_loss(self,class_out,perturbing_noise,target_signs,n_steps):
-        class_loss = -torch.mean(torch.sigmoid(class_out*target_signs))
+        class_loss = -torch.mean(torch.log(torch.sigmoid(class_out*target_signs)))
         l0_penalty = self.compute_l0_loss(perturbing_noise,self.methylation_attend,n_steps)
         
         #L0_penalty = torch.mean(torch.abs(perturbing_noise[self.methylation_attend]))*self.L0_penalty

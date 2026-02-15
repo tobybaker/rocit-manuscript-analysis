@@ -4,7 +4,7 @@ import itertools
 import datahelper
 
 from pathlib import Path
-from rocit import train,predict,ROCITInferenceStore
+from rocit import train,predict,ROCITInferenceStore,TrainingParams
 import gc
 def clean_and_create_dir(dir_path:Path):
     if dir_path.exists():
@@ -12,22 +12,17 @@ def clean_and_create_dir(dir_path:Path):
     dir_path.mkdir(parents=True, exist_ok=True)
     return dir_path
 
-def run_training_inference(train_result,out_sample_ids,experiment_name,train_predictions_dir):
-    for out_sample_id in out_sample_ids:
-        train_data_store = datahelper.get_sample_train_datasets(out_sample_id,add_normal=False)
-        dataset_iter = [('train',train_data_store.train_dataset),('test',train_data_store.test_dataset),('val',train_data_store.val_dataset)]
-        for dataset_name,dataset in dataset_iter:
-            inference_store = ROCITInferenceStore(dataset,train_data_store.embedding_sources)
-            predictions = predict(inference_store,train_result)
+def run_training_inference(train_result,train_data_store,out_sample_id,experiment_name,train_predictions_dir):
+    
+    dataset_iter = [('train',train_data_store.train_dataset),('test',train_data_store.test_dataset),('val',train_data_store.val_dataset)]
+    for dataset_name,dataset in dataset_iter:
+        inference_store = ROCITInferenceStore(dataset,train_data_store.embedding_sources)
+        predictions = predict(inference_store,train_result.best_checkpoint_path)
 
-            out_path = train_predictions_dir/f"train_{experiment_name}_out_{out_sample_id}_{dataset_name}_dataset.parquet"
-            
-            predictions.write_parquet(out_path)
-            
-        del dataset_iter
-        del train_data_store
-        gc.collect()
-            
+        out_path = train_predictions_dir/f"train_{experiment_name}_out_{out_sample_id}_{dataset_name}_dataset.parquet"
+        
+        predictions.write_parquet(out_path)
+
 
 
 if __name__ =="__main__":
@@ -50,6 +45,7 @@ if __name__ =="__main__":
     
     train_data_store = datahelper.get_sample_train_length_datasets(run_param['Sample_ID'],read_length=run_param['Read_Length'])
     clean_and_create_dir(log_dir/experiment_name)
-    train_result = train(train_data_store,log_dir,experiment_name,training_params=None)
+    t = TrainingParams(max_epochs=1)
+    train_result = train(train_data_store,log_dir,experiment_name,training_params=t)
     
-    run_training_inference(train_result,param_config['Sample_ID'],experiment_name,sample_predictions_dir)
+    run_training_inference(train_result,train_data_store,run_param['Sample_ID'],experiment_name,sample_predictions_dir)

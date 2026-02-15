@@ -1,3 +1,4 @@
+import polars as pl
 import pandas as pd
 import numpy as np
 import os
@@ -19,9 +20,9 @@ from tqdm import tqdm
 MODIFICATION_THRESHOLD = 0.1
 PROBABILITY_THRESHOLD = 0.2
 
-MAIN_DIR = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/plots')
-PLOT_DIR = MAIN_DIR /'read_interpretation'
-SUPPLEMENTARY_PLOT_DIR = MAIN_DIR/'supplementary_figures'
+MAIN_DIR = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/')
+PLOT_DIR = MAIN_DIR /'plots/read_interpretation'
+SUPPLEMENTARY_PLOT_DIR = MAIN_DIR/'plots/supplementary_figures'
 LOG_PATH = MAIN_DIR /'text/read_optimize_out.txt'
 MAIN_PENALTY=15
 
@@ -67,8 +68,8 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
     in_df = pl.read_parquet(filepath)
     
     in_df = in_df.filter(
-        (pl.col("Original_Probability") < PROBABILITY_THRESHOLD)
-        | (pl.col("Original_Probability") > 1 - PROBABILITY_THRESHOLD)
+        (pl.col("original_probability") < PROBABILITY_THRESHOLD)
+        | (pl.col("original_probability") > 1 - PROBABILITY_THRESHOLD)
     )
 
 
@@ -77,7 +78,7 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
 
     # Add tumor prediction column
     in_df = in_df.with_columns(
-        (pl.col("Original_Probability") > 0.5).alias("tumor_predicted_read")
+        (pl.col("original_probability") > 0.5).alias("tumor_predicted_read")
     )
 
     # Add metadata columns
@@ -86,10 +87,10 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
 
     # Add binned methylation columns
     in_df = in_df.with_columns(
-        bin_probs(in_df["original_methylation"]).alias("Original_Bin")
+        bin_probs(in_df["original_methylation"]).alias("original_bin")
     )
     in_df = in_df.with_columns(
-        bin_probs(in_df["modified_methylation"]).alias("Modified_Bin")
+        bin_probs(in_df["modified_methylation"]).alias("modified_bin")
     )
 
     # Identify CpGs with significant methylation changes
@@ -101,20 +102,20 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
     )
 
     # Rename position column
-    in_df = in_df.rename({"Positions": "Position"})
+    in_df = in_df.rename({"positions": "position"})
 
     # Identify reads that switched classification
     in_df = in_df.with_columns(
         (
             pl.col("tumor_predicted_read")
-            & (pl.col("Modified_Probability") < PROBABILITY_THRESHOLD)
+            & (pl.col("modified_probability") < PROBABILITY_THRESHOLD)
         ).alias("tumor_to_non_tumor")
     )
 
     in_df = in_df.with_columns(
         (
             ~pl.col("tumor_predicted_read")
-            & (pl.col("Modified_Probability") > (1 - PROBABILITY_THRESHOLD))
+            & (pl.col("modified_probability") > (1 - PROBABILITY_THRESHOLD))
         ).alias("non_tumor_to_tumor")
     )
 
@@ -128,29 +129,29 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
 def get_read_data(sample_data: pl.DataFrame) -> pl.DataFrame:
     group_cols = [
         "read_index",
-        "Chromosome",
+        "chromosome",
         "sample_id",
         "penalty",
         "tumor_predicted_read",
-        "Original_Probability",
-        "Modified_Probability",
+        "original_probability",
+        "modified_probability",
         "successful",
     ]
 
     # Aggregate switched CpG counts per read
     read_data = sample_data.group_by(group_cols).agg(
-        pl.col("switched_cpg").sum().alias("N_Switch"),
-        pl.col("switched_cpg").count().alias("N_CpGs"),
+        pl.col("switched_cpg").sum().alias("n_switch"),
+        pl.col("switched_cpg").count().alias("n_cpgs"),
     )
 
     # Calculate fraction of CpGs switched
     read_data = read_data.with_columns(
-        (pl.col("N_Switch") / pl.col("N_CpGs")).alias("Frac_Switch")
+        (pl.col("n_switch") / pl.col("n_cpgs")).alias("frac_switch")
     )
 
     return read_data
 def load_sample_data(sample_ids):
-    in_dir = '/hot/user/tobybaker/CellTypeClassifier/output/read_optimisation_l0_mean_high_lr/'
+    in_dir = '/hot/user/tobybaker/ROCIT_Paper/read_optimizations'
     
     sample_data = []
     for sample_id in sample_ids:
@@ -164,58 +165,25 @@ def load_sample_data(sample_ids):
             in_df = load_dataframe(filepath)
             sample_data.append(in_df)
         
-    return pd.concat(sample_data)
+    return pl.concat(sample_data)
 
-
-def get_aggregated_success_proportions(read_data):
-    read_counts = read_data.groupby(['penalty'])['successful'].agg(['size','sum']).reset_index()
-    read_counts = read_counts.rename(columns={'size':'N_Observations','sum':'N_Success'})
-    read_counts['Proportion'] = read_counts['N_Success']/read_counts['N_Observations']
-
-    ci_low, ci_high = proportion_confint(
-    count=read_counts['N_Success'],
-    nobs=read_counts['N_Observations'],
-    alpha=0.05,  # for 95% CI (1 - 0.05 = 0.95)
-    method='wilson'
-)
-    read_counts['CI_Low'] = ci_low
-    read_counts['CI_High'] = ci_high
-    return read_counts
-
-def plot_aggregated_success_proportions(read_data,color_scheme):
-    read_counts = get_aggregated_success_proportions(read_data)
-
-    write_to_log('====Proportion Success====')
-    write_to_log(read_counts.to_string())
-
-    fig,ax = plt.subplots(1,1,figsize=(2,3))
-
-    yerr = (read_counts['Proportion']-read_counts['CI_Low'],read_counts['CI_High']-read_counts['Proportion'])
-    ax.bar(np.arange(len(read_counts)),read_counts['Proportion'],color=color_scheme,yerr=yerr,capsize=5)
-    ax.set_xticks(np.arange(len(read_counts)))
-    ax.set_xticklabels(read_counts['penalty'])
-    ax.set_ylabel('Proportion of reads converted')
-    ax.set_xlabel('CpG Modification\npenalty')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.tight_layout()
-    plt.savefig(PLOT_DIR / 'n_success_reads.png')
-    plt.savefig(PLOT_DIR / 'n_success_reads.pdf')
 
 
 def get_sample_success_proportions(read_data):
-    read_counts = read_data.groupby(['sample_id','tumor_predicted_read','penalty'])['successful'].agg(['size','sum']).reset_index()
-    read_counts = read_counts.rename(columns={'size':'N_Observations','sum':'N_Success'})
-    read_counts['Proportion'] = read_counts['N_Success']/read_counts['N_Observations']
+
+    read_counts = read_data.group_by(['sample_id','tumor_predicted_read','penalty']).agg([
+        pl.col('successful').len().alias('n_observations'),
+        pl.col('successful').sum().alias('n_success')
+    ])
+    read_counts = read_counts.with_columns((pl.col('n_success')/pl.col('n_observations')).alias('proportion'))
 
     ci_low, ci_high = proportion_confint(
-    count=read_counts['N_Success'],
-    nobs=read_counts['N_Observations'],
+    count=read_counts['n_success'],
+    nobs=read_counts['n_observations'],
     alpha=0.05,  # for 95% CI (1 - 0.05 = 0.95)
     method='wilson'
-)
-    read_counts['CI_Low'] = ci_low
-    read_counts['CI_High'] = ci_high
+)   
+    read_counts = read_counts.with_columns(pl.lit(ci_low).alias('ci_low'),pl.lit(ci_high).alias('ci_high'))
     return read_counts
 def plot_sample_success_proportions(read_data):
 
@@ -228,15 +196,16 @@ def plot_sample_success_proportions(read_data):
     sample_count = 0
     
     bar_width = 0.3
-    for sample_id,sample_counts in read_counts.groupby('sample_id'):
+    for sample_id,sample_counts in read_counts.partition_by('sample_id', as_dict=True).items():
+        sample_id = sample_id[0]
         ax = axs[sample_count]
         tumor_offset = -bar_width
-        for tumor_predicted_read,tumor_table in sample_counts.groupby('tumor_predicted_read'):
-            
-            yerr = (tumor_table['Proportion']-tumor_table['CI_Low'],tumor_table['CI_High']-tumor_table['Proportion'])
-            ax.bar(np.arange(len(tumor_table))+tumor_offset,tumor_table['Proportion'],color=color_scheme[tumor_predicted_read],yerr=yerr,capsize=5,label=legend_mapping[tumor_predicted_read],align='edge',width=bar_width)
+        for tumor_predicted_read,tumor_table in sample_counts.partition_by('tumor_predicted_read', as_dict=True).items():
+            tumor_predicted_read = tumor_predicted_read[0]
+            yerr = (tumor_table['proportion']-tumor_table['ci_low'],tumor_table['ci_high']-tumor_table['proportion'])
+            ax.bar(np.arange(len(tumor_table))+tumor_offset,tumor_table['proportion'],color=color_scheme[tumor_predicted_read],yerr=yerr,capsize=5,label=legend_mapping[tumor_predicted_read],align='edge',width=bar_width)
             tumor_offset += bar_width
-        ax.set_xticks(np.arange(read_data['penalty'].nunique()))
+        ax.set_xticks(np.arange(read_data['penalty'].n_unique()))
         ax.set_xticklabels(sorted(read_data['penalty'].unique()))
         ax.set_ylabel('Proportion of reads converted')
         ax.set_xlabel('CpG Modification\npenalty')
@@ -249,154 +218,20 @@ def plot_sample_success_proportions(read_data):
     plt.tight_layout()
     plt.savefig(PLOT_DIR / 'sample_success_reads.png')
     plt.savefig(PLOT_DIR / 'sample_success_reads.pdf')
-def plot_frac_switch(read_data,color_scheme):
-    
-    success_data = read_data[read_data['successful']]
-    penalties = sorted(success_data['penalty'].unique())
-    penalty_data = [success_data[success_data['penalty']==penalty]['Frac_Switch'].values for penalty in penalties]
-
-    write_to_log('===-FRAC SWITCH===')
-    for index,penalty_values in enumerate(penalty_data):
-        log_text = f'penalty {penalties[index]} - Switch Proportion {np.mean(penalty_values)*100.0:.2f}% STD{np.std(penalty_values)*100.0:.2f}%'
-        write_to_log(log_text)
-    fig,ax = plt.subplots(1,1,figsize=(4,4))
-    
-    medianprops = {'color': 'black'}
-    flierprops = {'marker': 'o', 'markerfacecolor': 'black', 'markersize': 2,
-              'linestyle': 'none', 'alpha': 0.1}
-    bplot = ax.boxplot(penalty_data,
-                   patch_artist=True,
-                   tick_labels=penalties,
-                   medianprops=medianprops,
-                   flierprops=flierprops)
-    
-    for patch, color in zip(bplot['boxes'], color_scheme):
-        patch.set_facecolor(color)
-
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.set_ylabel('Proportion of perturbed CpGs per read')
-    ax.set_xlabel('CpG Modification\npenalty')
-    plt.tight_layout()
-    plt.savefig(PLOT_DIR / 'frac_cpg_switch.png')
-    plt.savefig(PLOT_DIR / 'frac_cpg_switch.pdf')
-
-def plot_n_switch(read_data,color_scheme):
-    
-    success_data = read_data[read_data['successful']]
-    penalties = sorted(success_data['penalty'].unique())
-    penalty_data = [success_data[success_data['penalty']==penalty]['N_Switch'].values for penalty in penalties]
-
-    fig,ax = plt.subplots(1,1,figsize=(4,4))
-    
-    medianprops = {'color': 'black'}
-    flierprops = {'marker': 'o', 'markerfacecolor': 'black', 'markersize': 2,
-              'linestyle': 'none', 'alpha': 0.1}
-    bplot = ax.boxplot(penalty_data,
-                   patch_artist=True,
-                   tick_labels=penalties,
-                   medianprops=medianprops,
-                   flierprops=flierprops)
-    
-    for patch, color in zip(bplot['boxes'], color_scheme):
-        patch.set_facecolor(color)
-
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.set_ylabel('Number of perturbed CpGs per read')
-    ax.set_xlabel('CpG Modification\npenalty')
-    plt.tight_layout()
-    plt.savefig(PLOT_DIR / 'n_cpg_switch.png')
-    plt.savefig(PLOT_DIR / 'n_cpg_switch.pdf')
-
-
-
-def get_switch_cpg_proportions(sample_data):
-    success_data = sample_data[(sample_data['successful']) & (sample_data['penalty']==MAIN_PENALTY)]
-    switch_counts = success_data.groupby(['Original_Bin','tumor_predicted_read'])['switched_cpg'].agg(['size','sum']).reset_index()
-    switch_counts = switch_counts.rename(columns={'size':'N_Observations','sum':'switched_cpg'})
-    switch_counts['Proportion'] = switch_counts['switched_cpg']/switch_counts['N_Observations']
-
-    ci_low, ci_high = proportion_confint(
-    count=switch_counts['switched_cpg'],
-    nobs=switch_counts['N_Observations'],
-    alpha=0.05,  # for 95% CI (1 - 0.05 = 0.95)
-    method='wilson'
-)
-    switch_counts['CI_Low'] = ci_low
-    switch_counts['CI_High'] = ci_high
-    return switch_counts.copy()
-
-def plot_switch_cpg_proportions(sample_data):
-    switch_proportions = get_switch_cpg_proportions(sample_data)
-    legend_mapping = {True:'Tumor to Non-Tumor',False:"Non-Tumor to Tumor"}
-    color_scheme = {True:'blue',False:'red'}
-    fig,ax = plt.subplots(1,1,figsize=(7,4))
-    bar_width = 0.3
-    
-    tumor_offset = -bar_width
-    for tumor_predicted_read,tumor_table in switch_proportions.groupby('tumor_predicted_read'):
-        
-        yerr = (tumor_table['Proportion']-tumor_table['CI_Low'],tumor_table['CI_High']-tumor_table['Proportion'])
-        ax.bar(np.arange(len(tumor_table))+tumor_offset,tumor_table['Proportion'],color=color_scheme[tumor_predicted_read],yerr=yerr,capsize=5,label=legend_mapping[tumor_predicted_read],align='edge',width=bar_width)
-        tumor_offset += bar_width
-    ax.set_xticks(np.arange(switch_proportions['Original_Bin'].nunique()))
-    ax.set_xticklabels(sorted(switch_proportions['Original_Bin'].unique()))
-    ax.set_ylabel('Proportion of CpGs Perturbed')
-    ax.set_xlabel('Original CpG Methylation Probability')
-    ax.legend(title='Read')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.savefig(PLOT_DIR / 'switch_cpg_proportions_by_probability.png')
-    plt.savefig(PLOT_DIR / 'switch_cpg_proportions_by_probability.pdf')
-
-def plot_probability_transition(sample_data):
-    success_data = sample_data[(sample_data['successful']) & (sample_data['penalty']==MAIN_PENALTY) &(sample_data['switched_cpg'])]
-    
-    write_to_log('====PROBABILITY TRANSITION====')
-    text_data = success_data.copy()
-    text_data['To_Hyper'] = text_data['original_methylation'] < text_data['modified_methylation']
-    text_data['To_Tumor'] = text_data['Original_Probability'] < text_data['Modified_Probability']
-    write_to_log(f'Proportion to hyper {text_data['To_Hyper'].mean()*100.0:.2f}%')
-
-    for to_tumor,to_tumor_text_data in text_data.groupby('To_Tumor'):
-        write_to_log(f'To Tumor {to_tumor} - Proportion to hyper {to_tumor_text_data['To_Hyper'].mean()*100.0:.2f}%')
-
-
-    counts = pd.crosstab(success_data['Modified_Bin'],success_data['Original_Bin'])
-    #counts = counts/counts.sum(axis=0)
-    counts = counts/counts.sum()
-    np.fill_diagonal(counts.values, np.nan)
-    fig, ax = plt.subplots()
-    im = ax.imshow(counts, cmap='plasma',origin='lower') # You can choose other colormaps
-
-    # 4. Add a color bar
-    cbar = ax.figure.colorbar(im, ax=ax)
-    cbar.ax.set_ylabel("Proportion of Perturbed CpGs", rotation=-90, va="bottom")
-
-    # 5. Set the labels for x and y axes
-    ax.set_xticks(np.arange(len(counts.columns)))
-    ax.set_yticks(np.arange(len(counts.index)))
-    ax.set_xticklabels(counts.columns)
-    ax.set_yticklabels(counts.index)
-
-    ax.set_xlabel('Original CpG Probability')
-    ax.set_ylabel('Modified CpG Probability')
-    # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-            rotation_mode="anchor")
-    plt.tight_layout()
-    plt.savefig(PLOT_DIR / 'probability_transition.png')
-    plt.savefig(PLOT_DIR / 'probability_transition.pdf')
 
 def plot_frac_success_by_type(sample_data):
-    sample_data = sample_data[ (sample_data['penalty']==MAIN_PENALTY)]
-    sample_data = sample_data[['sample_id','read_index','tumor_predicted_read','successful']].drop_duplicates()
+    sample_data = sample_data.filter(pl.col('penalty')==MAIN_PENALTY)
+    sample_data =sample_data.select(['penalty','sample_id','read_index','tumor_predicted_read','successful']).unique()
     
-    switch_by_type = sample_data.groupby(['sample_id','tumor_predicted_read'])['successful'].mean().reset_index()
-    switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['successful'].agg(['mean','std']).reset_index()
-    switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
-    
+    switch_by_type = sample_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("successful").mean())
+
+    switch_by_type_agg = switch_by_type.group_by("tumor_predicted_read")
+    switch_by_type_agg = switch_by_type_agg.agg(
+        pl.col("successful").mean().alias("mean"),
+        pl.col("successful").std().alias("std")
+    )
+    switch_by_type_agg = switch_by_type_agg.sort("tumor_predicted_read", descending=True)
+        
     fig,ax = plt.subplots(1,1,figsize=(2.8,3))
 
   
@@ -416,17 +251,24 @@ def plot_frac_success_by_type(sample_data):
     plt.savefig(PLOT_DIR / 'frac_success_by_type.pdf')
 
 def plot_frac_success_by_type_penalty(sample_data):
-    sample_data = sample_data[['penalty','sample_id','read_index','tumor_predicted_read','successful']].drop_duplicates()
+    
+    sample_data =sample_data.select(['penalty','sample_id','read_index','tumor_predicted_read','successful']).unique().sort('penalty')
     fig,ax = plt.subplots(1,3,figsize=(8,3))
     plt_count = 0
     write_to_log('====FRAC SUCCESS BY PENALTY====')
-    for penalty,penalty_data in sample_data.groupby('penalty'):
-        switch_by_type = penalty_data.groupby(['sample_id','tumor_predicted_read'])['successful'].mean().reset_index()
-        switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['successful'].agg(['mean','std']).reset_index()
-        switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
+    for penalty,penalty_data in sample_data.partition_by('penalty', as_dict=True).items():
+        penalty = penalty[0]
+        switch_by_type = penalty_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("successful").mean())
+
+        switch_by_type_agg = switch_by_type.group_by("tumor_predicted_read")
+        switch_by_type_agg = switch_by_type_agg.agg(
+            pl.col("successful").mean().alias("mean"),
+            pl.col("successful").std().alias("std")
+        )
+        switch_by_type_agg = switch_by_type_agg.sort("tumor_predicted_read", descending=True)
 
         write_to_log(f'penalty {penalty}')
-        write_to_log(switch_by_type_agg.to_string())
+        write_to_log(switch_by_type_agg.to_pandas().to_string())
     
         ax[plt_count].bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME,yerr=switch_by_type_agg['std'],capsize=5)
         ax[plt_count].set_xticks(np.arange(len(switch_by_type_agg)))
@@ -447,30 +289,35 @@ def plot_frac_success_by_type_penalty(sample_data):
     plt.savefig(PLOT_DIR / 'frac_success_by_type_penalty.pdf')
 
 def plot_frac_switch_by_type_penalty(sample_data):
-    sample_data = sample_data[ (sample_data['successful'])]
+    sample_data = sample_data.filter(pl.col('successful')).sort('penalty')
     fig,ax = plt.subplots(1,3,figsize=(8,3))
     plt_count = 0
 
     write_to_log('====FRAC SWITCH BY PENALTY===')
-    for penalty,penalty_data in sample_data.groupby('penalty'):
-        switch_by_type = penalty_data.groupby(['sample_id','tumor_predicted_read'])['switched_cpg'].mean().reset_index()
-        switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['switched_cpg'].agg(['mean','std']).reset_index()
-        switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
+    for penalty,penalty_data in sample_data.partition_by('penalty', as_dict=True).items():
+        switch_by_type = penalty_data.group_by(['sample_id', 'tumor_predicted_read']).agg(
+            pl.col('switched_cpg').mean()
+        )
+
+        switch_by_type_agg = switch_by_type.group_by('tumor_predicted_read').agg([
+            pl.col('switched_cpg').mean().alias('mean'),
+            pl.col('switched_cpg').std().alias('std')
+        ])
+
+        switch_by_type_agg = switch_by_type_agg.sort('tumor_predicted_read', descending=True)
+        
         write_to_log(f'penalty {penalty}')
-        write_to_log(switch_by_type_agg.to_string())
+        write_to_log(switch_by_type_agg.to_pandas().to_string())
     
         ax[plt_count].bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME,yerr=switch_by_type_agg['std'],capsize=5)
         ax[plt_count].set_xticks(np.arange(len(switch_by_type_agg)))
-        n_tumor_to_non_tumor = penalty_data['tumor_predicted_read'].sum()
-        non_tumor_to_n_tumor = len(penalty_data)-n_tumor_to_non_tumor
 
-        #ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor\nn={n_tumor_to_non_tumor:,}',f'Non-Tumor to\nTumor\nn={non_tumor_to_n_tumor:,}'])
         ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor',f'Non-Tumor to\nTumor'])
         ax[plt_count].set_ylabel('Proportion of CpGs Perturbed')
         ax[plt_count].spines['top'].set_visible(False)
         ax[plt_count].spines['right'].set_visible(False)
         ax[plt_count].set_ylim(0,0.15)
-        ax[plt_count].set_title(f'Sparsity penalty\n{penalty}')
+        ax[plt_count].set_title(f'Sparsity penalty\n{penalty[0]}')
 
         plt_count +=1
     plt.tight_layout()
@@ -478,20 +325,28 @@ def plot_frac_switch_by_type_penalty(sample_data):
     plt.savefig(PLOT_DIR / 'frac_switch_by_type_penalty.pdf')
 
 def plot_frac_switch_by_type(sample_data):
-    sample_data = sample_data[ (sample_data['penalty']==MAIN_PENALTY) & (sample_data['successful'])]
-    switch_by_type = sample_data.groupby(['sample_id','tumor_predicted_read'])['switched_cpg'].mean().reset_index()
-    switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['switched_cpg'].agg(['mean','std']).reset_index()
-    switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
+
+    sample_data = sample_data.filter(
+        (pl.col('penalty') == MAIN_PENALTY) & 
+        (pl.col('successful'))
+    )
+    switch_by_type = sample_data.group_by(['sample_id', 'tumor_predicted_read']).agg(
+        pl.col('switched_cpg').mean()
+    )
+
+    switch_by_type_agg = switch_by_type.group_by('tumor_predicted_read').agg([
+        pl.col('switched_cpg').mean().alias('mean'),
+        pl.col('switched_cpg').std().alias('std')
+    ])
+
+    switch_by_type_agg = switch_by_type_agg.sort('tumor_predicted_read', descending=True)
     
     fig,ax = plt.subplots(1,1,figsize=(2.8,3))
 
   
     ax.bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME,yerr=switch_by_type_agg['std'],capsize=5)
     ax.set_xticks(np.arange(len(switch_by_type_agg)))
-    n_tumor_to_non_tumor = sample_data['tumor_predicted_read'].sum()
-    non_tumor_to_n_tumor = len(sample_data)-n_tumor_to_non_tumor
 
-    #ax.set_xticklabels([f'Tumor to\n Non-Tumor\nn={n_tumor_to_non_tumor:,}',f'Non-Tumor to\nTumor\nn={non_tumor_to_n_tumor:,}'])
     ax.set_xticklabels([f'Tumor to\n Non-Tumor',f'Non-Tumor to\nTumor'])
     ax.set_ylabel('Proportion of CpGs Perturbed')
     ax.spines['top'].set_visible(False)
@@ -500,14 +355,26 @@ def plot_frac_switch_by_type(sample_data):
     plt.savefig(PLOT_DIR / 'frac_switch_by_type.png')
     plt.savefig(PLOT_DIR / 'frac_switch_by_type.pdf')
 
-def plot_switch_directions(sample_data):
-    sample_data = sample_data[ (sample_data['penalty']==MAIN_PENALTY) & (sample_data['successful']) & (sample_data['switched_cpg'])].copy()
-    sample_data['To_Hyper'] = sample_data['original_methylation'] < sample_data['modified_methylation']
-    switch_by_type = sample_data.groupby(['sample_id','tumor_predicted_read'])['To_Hyper'].mean().reset_index()
-    switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['To_Hyper'].agg(['mean','std']).reset_index()
-    switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
+def plot_switch_directions_by_type(sample_data):
+    sample_data = sample_data.filter(
+        (pl.col('switched_cpg')) & 
+        (pl.col('successful')) &
+        (pl.col('penalty')==MAIN_PENALTY)
+    )
+    sample_data = sample_data.with_columns((pl.col('original_methylation') < pl.col('modified_methylation')).alias('to_hyper'))
 
-    
+    switch_by_type = sample_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("to_hyper").mean())
+
+    switch_by_type_agg = (
+        switch_by_type
+        .group_by("tumor_predicted_read")
+        .agg(
+            pl.col("to_hyper").mean().alias("mean"),
+            pl.col("to_hyper").std().alias("std"),
+        )
+        .sort("tumor_predicted_read", descending=True)
+    )
+
     
     fig,ax = plt.subplots(1,1,figsize=(2.8,3))
 
@@ -526,18 +393,30 @@ def plot_switch_directions(sample_data):
     plt.savefig(PLOT_DIR / 'switch_directions_by_type.png')
     plt.savefig(PLOT_DIR / 'switch_directions_by_type.pdf')
 
-def plot_switch_directions_penalty(sample_data):
-    sample_data = sample_data[(sample_data['successful']) & (sample_data['switched_cpg'])].copy()
-    sample_data['To_Hyper'] = sample_data['original_methylation'] < sample_data['modified_methylation']
+def plot_switch_directions_by_type_penalty(sample_data):
+    sample_data = sample_data.filter(
+        (pl.col('switched_cpg')) & 
+        (pl.col('successful'))
+    )
+    sample_data = sample_data.with_columns((pl.col('original_methylation') < pl.col('modified_methylation')).alias('to_hyper'))
+    sample_data = sample_data.sort('penalty')
     fig,ax = plt.subplots(1,3,figsize=(8,3))
     plt_count = 0
     write_to_log('===Switch_Directions penalty===')
-    for penalty,penalty_data in sample_data.groupby('penalty'):
-        switch_by_type = penalty_data.groupby(['sample_id','tumor_predicted_read'])['To_Hyper'].mean().reset_index()
-        switch_by_type_agg = switch_by_type.groupby('tumor_predicted_read')['To_Hyper'].agg(['mean','std']).reset_index()
-        switch_by_type_agg = switch_by_type_agg.sort_values(by=['tumor_predicted_read'],ascending=False)
+    for penalty,penalty_data in sample_data.partition_by('penalty', as_dict=True).items():
+        switch_by_type = penalty_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("to_hyper").mean())
+
+        switch_by_type_agg = (
+            switch_by_type
+            .group_by("tumor_predicted_read")
+            .agg(
+                pl.col("to_hyper").mean().alias("mean"),
+                pl.col("to_hyper").std().alias("std"),
+            )
+            .sort("tumor_predicted_read", descending=True)
+        )
         write_to_log(f'penalty {penalty}')
-        write_to_log(switch_by_type_agg.to_string())
+        write_to_log(switch_by_type_agg.to_pandas().to_string())
 
         
         ax[plt_count].bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME,yerr=switch_by_type_agg['std'],capsize=5)
@@ -550,30 +429,78 @@ def plot_switch_directions_penalty(sample_data):
         ax[plt_count].spines['top'].set_visible(False)
         ax[plt_count].spines['right'].set_visible(False)
         ax[plt_count].set_ylim(0,1.05)
-        ax[plt_count].set_title(f'Sparsity penalty\n{penalty}')
+        ax[plt_count].set_title(f'Sparsity penalty\n{penalty[0]}')
 
         plt_count +=1
     plt.tight_layout()
     plt.savefig(PLOT_DIR / 'switch_directions_by_type_penalty.png')
     plt.savefig(PLOT_DIR / 'switch_directions_by_type_penalty.pdf')
 
+
+def load_cell_map_data():
+    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data')
+    cell_type_path = base_dir/'complete_cell_type_methylation_with_average_only.parquet'
+    cell_map_df = pl.scan_parquet(cell_type_path)
+    return cell_map_df
+
+def load_sample_dist_df(sample_id):
+    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_distributions/tumor')
+
+    sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
+    sample_dist_df = pl.scan_parquet(sample_dist_path).select(['chromosome','position','methylation_percentile_50'])
+    
+    sample_dist_df = sample_dist_df.with_columns(pl.lit(sample_id).alias("sample_id"))
+
+    return sample_dist_df
+        
+def get_sample_distribution_data(sample_data):
+    sample_ids = sample_data['sample_id'].unique().to_list()
+    sample_distribution_store = []
+    for sample_id in sample_ids:
+        sample_dist = load_sample_dist_df(sample_id)
+        sample_distribution_store.append(sample_dist)
+    return pl.concat(sample_distribution_store)
+def get_supplementary_annotations(sample_data):
+    cell_map_data = load_cell_map_data()
+    sample_distribution = get_sample_distribution_data(sample_data)
+    sample_data = sample_data.lazy().join(cell_map_data,on=['chromosome','position'],how='inner')
+    sample_data = sample_data.join(sample_distribution,on=['sample_id','chromosome','position'],how='inner')
+    return sample_data.collect()
 def plot_supplementary_variance_violin(sample_data):
     bool_order =(False,True)
+    
+    
+    sample_data = (
+    sample_data
+    .filter(
+        pl.col("successful"),
+        pl.col("penalty") == MAIN_PENALTY,
+    )
+    )
+    sample_data = get_supplementary_annotations(sample_data)
     cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
     
-    sample_data = sample_data[sample_data['successful'] &  (sample_data['penalty']==MAIN_PENALTY)]
-    median_data = sample_data[['switched_cpg','Methylation_Percentile_50']]
+    median_data = sample_data.select(['switched_cpg','methylation_percentile_50'])
 
-    median_data = median_data.dropna()
-    median_plot = [median_data[median_data['switched_cpg']==x]['Methylation_Percentile_50'].values for x in bool_order]
+    median_data = median_data.drop_nulls()
+    median_plot = [median_data.filter(pl.col('switched_cpg')==x)['methylation_percentile_50'].to_numpy() for x in bool_order]
     
-    cell_type_data = sample_data[['switched_cpg']].copy()
-    cell_type_data['STD'] = np.nanstd(sample_data[cell_type_cols], axis=1)
-    cell_type_data = cell_type_data.dropna()
-    cell_type_plot = [cell_type_data[cell_type_data['switched_cpg'] == x]['STD'].values for x in [False, True]]
+    cell_type_data = sample_data.with_columns(
+        pl.concat_list(cell_type_cols)
+      .list.eval(pl.element().drop_nulls().drop_nans().std())
+      .list.first()
+      .alias("std")
+    
+    )
+    cell_type_data = cell_type_data.select(['switched_cpg','std'])
+
+
+    cell_type_data = cell_type_data.drop_nulls()
+    
+    cell_type_plot = [cell_type_data.filter(pl.col('switched_cpg')==x)['std'].to_numpy() for x in [False, True]]
 
     write_to_log('==== Cell Type  & Median Data')
-    for data_label,dataset in [('Cell_Type_STD',cell_type_plot),('Median',median_plot)]:
+    for data_label,dataset in [('cell_type_STD',cell_type_plot),('Median',median_plot)]:
         for i,bool_val in enumerate(bool_order):
             log_text = f'{data_label} - Perturbed CpG {bool_val} - Median = {np.median(dataset[i]):.4f}'
             write_to_log(log_text)
@@ -646,11 +573,11 @@ def plot_supplementary_variance_violin(sample_data):
 
 def get_labelled_cell_type_sample(sample_data):
     sample_data = sample_data[sample_data['successful'] &  (sample_data['penalty']==MAIN_PENALTY)].copy()
-    sample_data['To_Tumor'] = (sample_data['Original_Probability']<0.5) & (sample_data['Modified_Probability']>0.5)
+    sample_data['to_tumor'] = (sample_data['original_probability']<0.5) & (sample_data['modified_probability']>0.5)
     sample_data['hypo_switch'] = (sample_data['original_methylation']>=0.5) & (sample_data['modified_methylation']<=0.5)
     sample_data['hyper_switch'] = (sample_data['original_methylation']<=0.5) & (sample_data['modified_methylation']>=0.5)
-    sample_data['CpG_movement'] = np.sign(sample_data['modified_methylation']-sample_data['original_methylation']).astype(int)
-
+    sample_data['cpg_movement'] = np.sign(sample_data['modified_methylation']-sample_data['original_methylation']).astype(int)
+    
     cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
     cell_types = [col.replace('average_methylation_','') for col in cell_type_cols]
 
@@ -663,6 +590,7 @@ def get_labelled_cell_type_sample(sample_data):
         extra_data[f'{cell_type}_total'] = np.sum(extra_data[f'{cell_type}_marker'])
         extra_data[f'{cell_type}_movement'] = np.sign(sample_data[average_meth_column]-cell_type_mean)
     extra_data = pd.DataFrame(extra_data)
+    
     sample_data = pd.concat([sample_data,extra_data],axis=1)
     
     return sample_data.reset_index(drop=True).copy()
@@ -673,13 +601,14 @@ def get_cell_type_hits(all_samples):
     for sample_id,sample_data  in all_samples.groupby('sample_id'):
         cancer_type = 'Prostate' if sample_id.startswith('BS') else 'Ovarian'
         sample_data = get_labelled_cell_type_sample(sample_data)
+        
+
         n_samples = len(sample_data)
         sample_markers = sample_data[(sample_data['modified_methylation']-sample_data['original_methylation']).abs()>0.5]
-        base_rate = len(sample_markers)/n_samples
+
 
         cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
         cell_types = [col.replace('average_methylation_','') for col in cell_type_cols]
-        cell_type_mean = np.nanmean(sample_data[cell_type_cols],axis=1)
 
 
         for cell_type_index,average_meth_column in enumerate(cell_type_cols):
@@ -689,14 +618,15 @@ def get_cell_type_hits(all_samples):
             if len(cell_df)<20:
                 continue
             
-            agree = np.where(cell_df['CpG_movement']==cell_df[f'{cell_type}_movement'].astype(int),1,-1)
+            agree = np.where(cell_df['cpg_movement']==cell_df[f'{cell_type}_movement'].astype(int),1,-1)
             
-            test_vector = np.multiply(agree,np.where(cell_df['To_Tumor'],1,-1))
+            test_vector = np.multiply(agree,np.where(cell_df['to_tumor'],1,-1))
             tumor_agree = np.mean(np.where(test_vector<0,0,1))
 
             marker_rate = len(cell_df)/cell_df[f'{cell_type}_total'].iloc[0]
-            row = {'Cancer_Type':cancer_type,'sample_id':sample_id,'Cell_Type':cell_type,'Tumor_Rate':tumor_agree,'Marker_Rate':marker_rate}
+            row = {'cancer_type':cancer_type,'sample_id':sample_id,'cell_type':cell_type,'tumor_rate':tumor_agree,'marker_rate':marker_rate}
             return_data.append(row)
+    
     return pd.DataFrame(return_data)
 
 
@@ -741,16 +671,19 @@ def add_custom_cell_type_legend(fig):
     
 
 def plot_cell_type_hits(sample_data):
+    sample_data = get_supplementary_annotations(sample_data)
+    sample_data = sample_data.to_pandas()
     cell_type_scores = get_cell_type_hits(sample_data)
     
-    cell_type_scores['Color'] = cell_type_scores['Cell_Type'].apply(get_cell_type_color_scheme)
-    cell_type_scores['Cell_Type_Group'] = cell_type_scores['Cell_Type'].apply(get_cell_type_group)
-    write_to_log('=====CELL TYPE HITS ====')
-    write_to_log(cell_type_scores.groupby(['Cell_Type_Group'])[['Tumor_Rate','Marker_Rate']].agg(['mean','std']).reset_index().to_string())
-    write_to_log(cell_type_scores.groupby(['Cancer_Type','Cell_Type_Group'])[['Tumor_Rate','Marker_Rate']].agg(['mean','std']).reset_index().to_string())
     
-    x = cell_type_scores[cell_type_scores['Marker_Rate']>=0.15].groupby(['Cell_Type'])['Tumor_Rate'].agg(['mean','size']).reset_index()
-    x = x.rename(columns={'mean':'Proportion_Tumor_Aligned','size':'N_Samples'})
+    cell_type_scores['color'] = cell_type_scores['cell_type'].apply(get_cell_type_color_scheme)
+    cell_type_scores['cell_type_group'] = cell_type_scores['cell_type'].apply(get_cell_type_group)
+    write_to_log('=====CELL TYPE HITS ====')
+    write_to_log(cell_type_scores.groupby(['cell_type_group'])[['tumor_rate','marker_rate']].agg(['mean','std']).reset_index().to_string())
+    write_to_log(cell_type_scores.groupby(['cancer_type','cell_type_group'])[['tumor_rate','marker_rate']].agg(['mean','std']).reset_index().to_string())
+    
+    x = cell_type_scores[cell_type_scores['marker_rate']>=0.15].groupby(['cell_type'])['tumor_rate'].agg(['mean','size']).reset_index()
+    x = x.rename(columns={'mean':'proportion_tumor_aligned','size':'n_samples'})
     
     fig,axs = plt.subplots(2,3,figsize=(12,5))
     axs = axs.flatten()
@@ -759,7 +692,7 @@ def plot_cell_type_hits(sample_data):
     sample_ids = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
     for sample_id in sample_ids:
         sample_data = cell_type_scores[cell_type_scores['sample_id']==sample_id]
-        axs[plt_count].scatter(sample_data['Marker_Rate'],sample_data['Tumor_Rate'],s=3,color=sample_data['Color'],alpha=0.8)
+        axs[plt_count].scatter(sample_data['marker_rate'],sample_data['tumor_rate'],s=3,color=sample_data['color'],alpha=0.8)
         axs[plt_count].set_xlabel('Proportion of marker CpGs\nthat are perturbed')
         axs[plt_count].set_ylabel('Proportion tumor-like')
         axs[plt_count].set_xlim(0,0.5)
@@ -832,8 +765,8 @@ def get_neighbourhood_data(sample_data,use_reference_positions):
     n_total = len(sample_data.drop_duplicates(subset=['sample_id','penalty','read_index']))
     neighbourhood_data = []
     for (sample_id,penalty,read_index),read_data in tqdm(sample_data.groupby(['sample_id','penalty','read_index'])):
-        true_neighbour_mean = get_mean_nearest_neighbour_distance(read_data['switched_cpg'].values,read_data['Position'].values,use_reference_positions)
-        permuted_neighbour_distribution = get_mean_nearest_neighbour_distance_distribution(read_data['switched_cpg'].values,read_data['Position'].values,use_reference_positions,5000)
+        true_neighbour_mean = get_mean_nearest_neighbour_distance(read_data['switched_cpg'].values,read_data['position'].values,use_reference_positions)
+        permuted_neighbour_distribution = get_mean_nearest_neighbour_distance_distribution(read_data['switched_cpg'].values,read_data['position'].values,use_reference_positions,5000)
         
         p_value =get_permuted_neighbour_p_value(true_neighbour_mean,permuted_neighbour_distribution)
         
@@ -847,30 +780,26 @@ def get_neighbourhood_data(sample_data,use_reference_positions):
         row_data['r_value'] = r_value
         neighbourhood_data.append(row_data)
     neighbourhood_data =  pd.DataFrame(neighbourhood_data)
-    neighbourhood_data['FDR'] = multipletests(neighbourhood_data['p_value'],alpha=0.05,method='fdr_bh')[1]
+    neighbourhood_data['fdr'] = multipletests(neighbourhood_data['p_value'],alpha=0.05,method='fdr_bh')[1]
     neighbourhood_data['-log2_r_value'] = -np.log2(neighbourhood_data['r_value'])
     neighbourhood_data['r_value_closer'] = neighbourhood_data['r_value']<1
     return neighbourhood_data
 
 def plot_neighbourhood_wrapper(sample_data,read_data,use_reference_positions,fdr_threshold=0.05):
-    neighbourhood_data = get_neighbourhood_data(sample_data,use_reference_positions=use_reference_positions)
-    neighbourhood_data = neighbourhood_data.merge(read_data[['read_index','tumor_predicted_read']])
+    neighbourhood_data = get_neighbourhood_data(sample_data.to_pandas(),use_reference_positions=use_reference_positions)
+    neighbourhood_data = neighbourhood_data.merge(read_data.to_pandas()[['read_index','tumor_predicted_read']])
     
-    neighbourhood_data['significant'] = neighbourhood_data['FDR']<fdr_threshold
-    proportion_significant = neighbourhood_data['significant'].mean()
-    proportion_significant_closer = (neighbourhood_data[neighbourhood_data['significant']]['r_value']<1).mean()
-    
+    neighbourhood_data['significant'] = neighbourhood_data['fdr']<fdr_threshold
+
     write_to_log(f'With use reference positions {use_reference_positions}')
     summary_df = neighbourhood_data.groupby(['tumor_predicted_read'])['r_value_closer'].agg(['mean'])
     write_to_log(summary_df.to_string())
 
 
     plot_neighbourhood_analysis_violin(neighbourhood_data,use_reference_positions)
-    #plot_neighbourhood_analysis_cpg_number(neighbourhood_data,read_data,use_reference_positions,fdr_threshold)
 
 def plot_neighbourhood_analysis_violin(neighbourhood_data,use_reference_positions):
     bool_order =(True,False)
-    cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
     
     neighbourhood_data = neighbourhood_data[['tumor_predicted_read','-log2_r_value']].dropna()
     r_value_plot = [neighbourhood_data[neighbourhood_data['tumor_predicted_read']==x]['-log2_r_value'].values for x in bool_order]
@@ -888,7 +817,6 @@ def plot_neighbourhood_analysis_violin(neighbourhood_data,use_reference_position
     for partname in [ 'cmedians']:
         vplot[partname].set_edgecolor('black')
     
-
     # Mann-Whitney U tests
     _, p_r_value = mannwhitneyu(r_value_plot[0], r_value_plot[1], alternative='two-sided')
     write_to_log(f'{use_reference_positions} Tumor predicted read p value {p_r_value}')
@@ -951,8 +879,8 @@ def plot_neighbourhood_analysis(neighbourhood_data,use_reference_positions,fdr_t
 
 def plot_neighbourhood_analysis_cpg_number(neighbourhood_data,read_data,use_reference_positions,fdr_threshold=0.05):
 
-    n_cpg_data = read_data[['read_index','penalty','N_Switch']].copy()
-    n_cpg_data['Switch_Plot'] = np.where(n_cpg_data['N_Switch']>=7,'7+',n_cpg_data['N_Switch'])
+    n_cpg_data = read_data[['read_index','penalty','n_switch']].copy()
+    n_cpg_data['Switch_Plot'] = np.where(n_cpg_data['n_switch']>=7,'7+',n_cpg_data['n_switch'])
 
     neighbourhood_data = neighbourhood_data.merge(n_cpg_data,how='inner')
 
@@ -981,30 +909,35 @@ def plot_neighbourhood_analysis_cpg_number(neighbourhood_data,read_data,use_refe
     plt.savefig(SUPPLEMENTARY_PLOT_DIR / f'{plot_filename}.pdf')
 
 def plot_read_perturbation(read_data,sample_data):
-    read_data = read_data.copy()
-    read_data = read_data[read_data['successful']]
-    read_data = read_data[read_data['N_CpGs'].between(60,100)]
-    read_data = read_data[read_data['penalty']==MAIN_PENALTY]
-    read_data = read_data[read_data['Frac_Switch'].between(0.01,0.1)]
-
-
-    test = sample_data[sample_data['read_index'].isin(read_data['read_index']) & (sample_data['penalty']==MAIN_PENALTY)]
-    test = test[test['switched_cpg']].copy()
-    test['Mod_Direction'] = np.sign(test['original_methylation']-test['modified_methylation']).astype(int)==1
     
+    read_data = (
+    read_data
+    .filter(
+        pl.col("successful"),
+        pl.col("n_cpgs").is_between(60, 100),
+        pl.col("penalty") == MAIN_PENALTY,
+        pl.col("frac_switch").is_between(0.01, 0.1)
+    )
+    )
 
-    plot_data = sample_data[(sample_data['read_index'].str.contains('m84209_250513_225956_s2/97060973/ccs')) & (sample_data['penalty']==MAIN_PENALTY)]
-    plot_data = plot_data.sort_values(by='Position')
+    plot_data = (
+    sample_data
+    .filter(
+        pl.col("read_index") == 'm84137_240611_154227_s3/199102432/ccs',
+        pl.col("penalty") == MAIN_PENALTY,
+    )
+    )
+    plot_data = plot_data.sort(by='position')
     
-    perturbation = np.where((plot_data['original_methylation']-plot_data['modified_methylation']).abs()>0.1,plot_data['modified_methylation'].values,np.nan)
-    fig,axs = plt.subplots(3,1,figsize=(10,2),constrained_layout=True)
+    perturbation = np.where((plot_data['original_methylation']-plot_data['modified_methylation']).abs()>0.1,plot_data['modified_methylation'].to_numpy(),np.nan)
+    fig,axs = plt.subplots(3,1,figsize=(10,5))
 
-    im = axs[0].imshow(plot_data['original_methylation'].values.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
-    axs[0].set_title(f'Original Read\nTumor Read Probability {plot_data["Original_Probability"].iloc[0]:.2f}')
+    im = axs[0].imshow(plot_data['original_methylation'].to_numpy().reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
+    axs[0].set_title(f'Original Read\nTumor Read Probability {plot_data["original_probability"][0]:.2f}')
     axs[1].imshow(perturbation.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
     axs[1].set_title('Change Methylation at Specific CpG Sites')
-    axs[2].imshow(plot_data['modified_methylation'].values.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
-    axs[2].set_title(f'Perturbed Read\nTumor Read Probability {plot_data["Modified_Probability"].iloc[0]:.2f}')
+    axs[2].imshow(plot_data['modified_methylation'].to_numpy().reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
+    axs[2].set_title(f'Perturbed Read\nTumor Read Probability {plot_data["modified_probability"][0]:.2f}')
     
     for i in range(3):
         axs[i].set_yticks([])
@@ -1019,89 +952,46 @@ def plot_read_perturbation(read_data,sample_data):
     plt.savefig(PLOT_DIR / 'read_perturb_example.png')
     plt.savefig(PLOT_DIR / 'read_perturb_example.pdf')
 
-def plot_read_perturbation_del(read_data,sample_data):
-    read_data = read_data.copy()
-    read_data = read_data[read_data['successful']]
-    read_data = read_data[read_data['N_CpGs'].between(60,100)]
-    read_data = read_data[read_data['penalty']==MAIN_PENALTY]
-    read_data = read_data[read_data['Frac_Switch'].between(0.01,0.1)]
-
-
-    test = sample_data[sample_data['read_index'].isin(read_data['read_index']) & (sample_data['penalty']==MAIN_PENALTY)]
-    test = test[test['switched_cpg']].copy()
-    test['Mod_Direction'] = np.sign(test['original_methylation']-test['modified_methylation']).astype(int)==1
-    
-
-    plot_data = sample_data[(sample_data['read_index'].str.contains('m84209_250513_225956_s2/97060973/ccs')) & (sample_data['penalty']==MAIN_PENALTY)]
-    plot_data = plot_data.sort_values(by='Position')
-    
-    perturbation = np.where((plot_data['original_methylation']-plot_data['modified_methylation']).abs()>0.1,plot_data['modified_methylation'].values,np.nan)
-    fig,axs = plt.subplots(3,1,figsize=(10,2),constrained_layout=True)
-
-    im = axs[0].imshow(plot_data['original_methylation'].values.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
-    axs[0].set_title(f'Original Read\nTumor Read Probability {plot_data["Original_Probability"].iloc[0]:.2f}')
-    axs[1].imshow(perturbation.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
-    axs[1].set_title('Change Methylation at Specific CpG Sites')
-    axs[2].imshow(plot_data['modified_methylation'].values.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
-    axs[2].set_title(f'Perturbed Read\nTumor Read Probability {plot_data["Modified_Probability"].iloc[0]:.2f}')
-    
-    for i in range(3):
-        axs[i].set_yticks([])
-    axs[0].set_xticks([])
-    axs[1].set_xticks([])
-
-    axs[2].set_xlabel('CpG Site')
-    fig.subplots_adjust(right=0.85)
-    cbar = fig.colorbar(im, ax=axs.tolist(), location='right', shrink=1.0,aspect=10)
-    cbar.set_label('Methylation Probability')
-    #plt.tight_layout()
-    plt.savefig(PLOT_DIR / 'read_perturb_example.png')
-    plt.savefig(PLOT_DIR / 'read_perturb_example.pdf')
-    
 if __name__ =="__main__":
+    
 
-
+    current_datetime_string = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    #clear and start new logs
+    write_to_log(f'LOGS - {current_datetime_string}',append=False)
     
     sample_ids = ['216_TU','244_TU','264_TU','BS15145_TU','BS14772_TU','053_TU']
 
     sample_data = load_sample_data(sample_ids)
     
     
-    
     read_data = get_read_data(sample_data)
+
+    
     plot_read_perturbation(read_data,sample_data)
-    exit()
+    
     
     plot_supplementary_variance_violin(sample_data)
     
-
-    
     plot_cell_type_hits(sample_data)
+    
     write_to_log('=====Neighborhood analysis======')
     plot_neighbourhood_wrapper(sample_data,read_data,use_reference_positions=True)
     plot_neighbourhood_wrapper(sample_data,read_data,use_reference_positions=False)
     
     plot_frac_switch_by_type(sample_data)
+    plot_frac_success_by_type(sample_data)
+    
     plot_frac_success_by_type_penalty(sample_data)
     plot_frac_switch_by_type_penalty(sample_data)
-    plot_switch_directions(sample_data)
-    plot_switch_directions_penalty(sample_data)
+    plot_switch_directions_by_type(sample_data)
+    plot_switch_directions_by_type_penalty(sample_data)
     
 
-    
-    plot_probability_transition(sample_data)
-    
-    plot_supplementary_variance_violin(sample_data)
-    
-    color_scheme = get_sequential_colors(sample_data['penalty'].nunique())
-    
-
-    plot_aggregated_success_proportions(read_data,color_scheme)
     plot_sample_success_proportions(read_data)
-    plot_n_switch(read_data,color_scheme)
-    plot_frac_switch(read_data,color_scheme)
-    plot_frac_success_by_type(sample_data)
-    plot_switch_cpg_proportions(sample_data)
+
+
+
+
     
     
     

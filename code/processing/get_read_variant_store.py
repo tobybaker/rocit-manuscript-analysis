@@ -3,6 +3,7 @@ import polars as pl
 from pathlib import Path
 import multiprocessing as mp
 from rocit.preprocessing import bam_tools
+
 from make_sample_training_data import get_bam_path
 from variant_loader import load_short_read_variants,load_long_read_variants,BASE_ENUM
 
@@ -12,7 +13,7 @@ FILTER_STATUS_ENUM = pl.Enum(['pass','fail','missing'])
 
 
 def get_variant_reads_df(long_read_variants, sample_bam_path, max_workers=None):
-    rows = list(long_read_variants.iter_rows(named=True))[:100]
+    rows = list(long_read_variants.iter_rows(named=True))
 
     ctx = mp.get_context("spawn")
     with ProcessPoolExecutor(max_workers=max_workers,mp_context=ctx) as executor:

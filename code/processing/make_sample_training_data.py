@@ -6,7 +6,7 @@ import cluster_loader
 import phasing_loader
 import variant_loader
 from pathlib import Path
-from rocit.preprocessing import train_data_processor
+from rocit.preprocessing import tumor_data_labeller
 
 def get_short_read_variant_filter_type(sample_id:str):
     if sample_id.startswith('BS'):
@@ -50,7 +50,7 @@ if __name__ =='__main__':
         if sample_id.startswith('BS'):
             snv_cluster_assignments = None
         else:
-            snv_cluster_assignments = cluster_loader.load_cluster_assignments(sample_id,cluster_labels)
+            snv_cluster_assignments = cluster_loader.load_cluster_assignments(sample_id,clusters)
         
         haplotags = phasing_loader.load_haplotags(sample_id)
         haploblocks = phasing_loader.load_haploblocks(sample_id)

@@ -105,9 +105,9 @@ def create_vertical_paired_violins(data_dict,comparison_p_values, sample_ids=Non
 
     return fig, ax
 
-def load_read_table(sample_id:str):
+def load_read_table(sample_id:str,mode:str):
     in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/short_read_variants')
-    filename = f'{sample_id}_TU_reads.parquet'
+    filename = f'{sample_id}_{mode}_reads.parquet'
     in_path = in_dir/filename
     in_df = pl.scan_parquet(in_path)
     in_df = in_df.filter(pl.col('contains_snv'))
@@ -116,10 +116,13 @@ def load_read_table(sample_id:str):
 
 def get_valid_variants(sample_id,read_table):
     count_table = read_table.group_by(['chromosome','position']).agg(pl.col('contains_snv').sum())
-
-    print(count_table.collect())
-    exit()
+    normal_count_table = load_read_table(sample_id,'NL').group_by(['chromosome','position']).agg(pl.col('contains_snv').sum())
+    
     count_table = count_table.filter(pl.col('contains_snv')>=MIN_ALT_COUNT)
+    normal_count_table = normal_count_table.filter(pl.col('contains_snv')>=0)
+
+    count_table = count_table.join(normal_count_table,how='anti',on=['chromosome','position'])
+    
 
     long_read_variants = load_long_read_variants(sample_id,pass_filter=True).lazy()
     count_table = exclude_proximal(count_table,long_read_variants,max_dist=MAX_PACBIO_DIST)
@@ -128,13 +131,13 @@ def get_valid_variants(sample_id,read_table):
 
 def get_sample_data(sample_id):
 
-    read_table = load_read_table(sample_id)
+    read_table = load_read_table(sample_id,mode='TU')
 
 
     valid_variants = get_valid_variants(sample_id,read_table)
     
     read_table = read_table.join(valid_variants,how='semi',on=['chromosome','position'])
-
+    
     predictions = load_tumor_predictions(sample_id)
     read_table = read_table.join(predictions,how='inner',on=['read_index','chromosome'])
     read_table = read_table.with_columns((pl.col('tumor_probability')>=0.5).alias('tumor_read'))

@@ -1,5 +1,5 @@
 import polars as pl
-
+from rocit.constants import HUMAN_CHROMOSOMES,HUMAN_CHROMOSOME_ENUM
 from pathlib import Path
 
 ASCAT_DIR = Path('/hot/user/ngarciadutton/rocit_results/ascat_3.2')
@@ -31,11 +31,13 @@ def load_cn_ascat(sample_id):
     ascat_df = ascat_df.drop('sample')
     
     ascat_df = ascat_df.with_columns(
-    ("chr" + pl.col("chromosome").cast(pl.Utf8)).alias("chromosome").cast(pl.Categorical),
+    ("chr" + pl.col("chromosome").cast(pl.Utf8)).alias("chromosome"),
     (pl.col('major_cn')+pl.col('minor_cn')).alias('total_cn'),
     (pl.col('segment_end')-pl.col('segment_start')).alias('segment_length'),
     pl.lit(get_ascat_purity(sample_id)).alias('purity')
     )
+    ascat_df = ascat_df.filter(pl.col('chromosome').is_in(HUMAN_CHROMOSOMES))
+    ascat_df = ascat_df.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
 
     sample_sex = get_sample_sex(sample_id)
     haploid_total_cn = (

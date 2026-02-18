@@ -7,7 +7,7 @@ import phasing_loader
 import variant_loader
 from pathlib import Path
 from rocit.preprocessing import tumor_data_labeller
-
+from rocit.constants import HUMAN_CHROMOSOME_ENUM
 def get_short_read_variant_filter_type(sample_id:str):
     if sample_id.startswith('BS'):
         return 'Remove_Germline'
@@ -31,12 +31,53 @@ def get_bam_path(sample_id:str):
     return in_dir/f'{sample_id}.HT_split.primary_nokinetics.bam'
 
 def get_methylation_dir(sample_id:str):
-    base_dir = Path(f'/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_info_redo/tumor/')
+    base_dir = Path(f'/hot/user/tobybaker/ROCIT_Paper/input_data/cpg_methylation')
     return base_dir/sample_id
 
 def get_normal_id(tumor_id):
     return f'{tumor_id.split("_")[0]}_NL'
+def load_dbsnp():
+    in_dir = Path('/hot/user/datkinson/dbSNP/')
+    filename = 'dbSNP_all_TOPMED_001.vcf.gz'
+    in_path = in_dir/filename
 
+    schema = {
+    "#CHROM": pl.String,
+    "POS": pl.Int64,
+    "ID": pl.String,
+    "REF": pl.String,
+    "ALT": pl.String,
+    "QUAL": pl.String,
+    "FILTER": pl.String,
+    "INFO": pl.String,
+    }
+
+    in_df  = (
+    pl.scan_csv(
+        in_path,
+        separator="\t",
+        comment_prefix="##",
+        schema_overrides=schema
+    )
+    .select(
+        (pl.lit("chr") + pl.col("#CHROM")).alias("chromosome").cast(HUMAN_CHROMOSOME_ENUM),
+        pl.col("POS").alias("position"),
+        pl.col("REF").alias("ref"),
+        pl.col("ALT").alias("alt")
+        )
+    )
+    #check for snps
+    in_df = in_df.with_columns(
+    is_snp=(
+        (pl.col("ref").str.len_bytes() == 1)
+        & pl.col("alt")
+        .str.split(",")
+        .list.eval(pl.element().str.len_bytes() == 1)
+        .list.all()
+    )
+    )
+    in_df = in_df.filter(pl.col('is_snp')).drop(['ref','alt','is_snp'])
+    return in_df.collect()
 
 if __name__ =='__main__':
     sample_ids = ['053_TU','216_TU','244_TU','264_TU','BS14772_TU','BS15145_TU']
@@ -55,18 +96,22 @@ if __name__ =='__main__':
         haplotags = phasing_loader.load_haplotags(sample_id)
         haploblocks = phasing_loader.load_haploblocks(sample_id)
         
-        long_read_variants = variant_loader.load_long_read_variants(sample_id)  
-        short_read_variants = variant_loader.load_short_read_variants(sample_id)
+        long_read_variants = variant_loader.load_long_read_variants(sample_id,pass_filter=True)
+        short_read_variants = variant_loader.load_short_read_variants(sample_id,pass_filter=False).drop(['tumor_ref_count','tumor_alt_count'])
+        dbsnp = load_dbsnp()
+        
         
         long_read_variants = run_short_read_filtering(sample_id,long_read_variants,short_read_variants)
+        
+        long_read_variants = long_read_variants.join(dbsnp,how='anti',on=['chromosome','position'])
         
         sample_bam_path = get_bam_path(sample_id)
 
         methylation_dir = get_methylation_dir(sample_id)
-        pretrain_data = train_data_processor.ROCITPreTrainData(sample_id,sample_bam_path,methylation_dir,sample_cn,long_read_variants,haplotags,haploblocks,cluster_labels,snv_cluster_assignments)
+        pretrain_data = tumor_data_labeller.ROCITSomaticData(sample_id,sample_bam_path,methylation_dir,sample_cn,long_read_variants,haplotags,haploblocks,clusters,snv_cluster_assignments)
         
-        read_labels = train_data_processor.make_read_labels(pretrain_data)
-        labelled_data = train_data_processor.get_labelled_methylation_data(pretrain_data.sample_methylation_dir,read_labels)
+        read_labels = tumor_data_labeller.make_read_labels(pretrain_data)
+        labelled_data = tumor_data_labeller.get_labelled_methylation_data(pretrain_data.sample_methylation_dir,read_labels)
         
         out_path = out_dir/f'{sample_id}_labelled_data.parquet'
         labelled_data.sink_parquet(out_path)
@@ -74,6 +119,6 @@ if __name__ =='__main__':
         normal_id = get_normal_id(sample_id)
         normal_methylation_dir = get_methylation_dir(normal_id)
 
-        normal_labelled_data = train_data_processor.get_subsampled_methylation_data(normal_methylation_dir,subsample_rate=0.05)
+        normal_labelled_data = tumor_data_labeller.get_subsampled_methylation_data(normal_methylation_dir,subsample_rate=0.05)
         normal_out_path = out_dir/f'{normal_id}_labelled_data.parquet'
         normal_labelled_data.sink_parquet(normal_out_path)

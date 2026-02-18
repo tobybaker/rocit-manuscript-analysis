@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=read_variant
+#SBATCH --job-name=read_extent
 #SBATCH --partition=F16
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=0

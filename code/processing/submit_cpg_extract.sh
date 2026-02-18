@@ -4,6 +4,5 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=150GB
 #SBATCH --time=24:00:00
-
-# Usage: sbatch submit_cpg_extraction.sh <bam_file> <output_dir> <sample_id>
-~/miniconda3/envs/pytorch_env/bin/python /hot/user/tobybaker/ROCIT_Paper/code/processing/extract_cpg_info_from_bam.py "$1" "$2" "$3" --workers 8
+#SBATCH --array=12-13
+~/miniconda3/envs/pytorch_env/bin/python extract_tumor_cpg_data.py $SLURM_ARRAY_TASK_ID

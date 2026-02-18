@@ -1,5 +1,5 @@
 import polars as pl
-
+from rocit.constants import HUMAN_CHROMOSOMES,HUMAN_CHROMOSOME_ENUM
 from pathlib import Path
 
 BASES = ['A','C','G','T']
@@ -85,7 +85,7 @@ def load_vcf(vcf_path: str, mode:str, pass_filter: bool) -> pl.DataFrame:
 
  
     df = df.drop(['id', 'qual', 'info', 'format', 'data'])
-    
+    df = df.filter(pl.col('chromosome').is_in(HUMAN_CHROMOSOMES))
     return df
 
 
@@ -97,8 +97,8 @@ def load_short_read_variants(sample_id:str,pass_filter:bool):
 
     vcf = vcf.filter(pl.col('ref').is_in(BASES))
     vcf = vcf.filter(pl.col('alt').is_in(BASES))
-    vcf = vcf.with_columns(pl.col('chromosome').cast(pl.Categorical),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
-    return vcf.select(['chromosome','position','ref','alt','filter'])
+    vcf = vcf.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
+    return vcf.select(['chromosome','position','ref','alt','filter','tumor_ref_count','tumor_alt_count'])
 
 
 def load_long_read_variants(sample_id:str,pass_filter:bool):
@@ -108,6 +108,6 @@ def load_long_read_variants(sample_id:str,pass_filter:bool):
     
     vcf = vcf.filter(pl.col('ref').is_in(BASES))
     vcf = vcf.filter(pl.col('alt').is_in(BASES))
-    vcf = vcf.with_columns(pl.col('chromosome').cast(pl.Categorical),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
+    vcf = vcf.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM),pl.col('ref').cast(BASE_ENUM),pl.col('alt').cast(BASE_ENUM))
     
     return vcf.select(['chromosome','position','ref','alt','filter','tumor_ref_count','tumor_alt_count','vaf'])

@@ -1,5 +1,5 @@
 import polars as pl
-
+from rocit.constants import HUMAN_CHROMOSOMES,HUMAN_CHROMOSOME_ENUM
 from pathlib import Path
 
 
@@ -44,6 +44,8 @@ def load_haploblocks(sample_id):
             pl.col('n_variants').cast(pl.Int32)
         )
     )
+    haploblocks = haploblocks.filter(pl.col('chromosome').is_in(HUMAN_CHROMOSOMES))
+    haploblocks = haploblocks.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
     return haploblocks
 
 def load_haplotags(sample_id):
@@ -71,7 +73,8 @@ def load_haplotags(sample_id):
     haplotags = haplotags.join(valid_reads, on='read_index', how='semi').sort('read_index')
 
     haplotags = haplotags.with_columns(
-            pl.col('chromosome').cast(pl.Categorical),
             pl.col('haplotag').cast(pl.Int8)
         )
+    haplotags = haplotags.filter(pl.col('chromosome').is_in(HUMAN_CHROMOSOMES))
+    haplotags = haplotags.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
     return haplotags

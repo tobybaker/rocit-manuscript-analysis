@@ -438,15 +438,15 @@ def plot_switch_directions_by_type_penalty(sample_data):
 
 
 def load_cell_map_data():
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data')
-    cell_type_path = base_dir/'complete_cell_type_methylation_with_average_only.parquet'
+    base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/')
+    cell_type_path = base_dir/'cell_type_average_methylation_atlas.parquet'
     cell_map_df = pl.scan_parquet(cell_type_path)
     return cell_map_df
 
 def load_sample_dist_df(sample_id):
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_distributions/tumor')
+    base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/cpg_methylation_distribution')
 
-    sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
+    sample_dist_path = base_dir/f'{sample_id}_methylation_distribution.parquet'
     sample_dist_df = pl.scan_parquet(sample_dist_path).select(['chromosome','position','methylation_percentile_50'])
     
     sample_dist_df = sample_dist_df.with_columns(pl.lit(sample_id).alias("sample_id"))

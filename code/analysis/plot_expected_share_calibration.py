@@ -36,7 +36,7 @@ def load_read_labels(sample_id):
     in_path = in_dir/f'{sample_id}_TU_labelled_data.parquet'
     return load_read_data(in_path)
 def load_read_extent(sample_id):
-    read_extent_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/read_extent/')
+    read_extent_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/read_extent')
     read_extent_path = read_extent_dir/f'{sample_id}_TU_read_extent.parquet'
     read_extent = pl.scan_parquet(read_extent_path).with_columns(pl.col('chromosome').cast(pl.Categorical))
     return read_extent

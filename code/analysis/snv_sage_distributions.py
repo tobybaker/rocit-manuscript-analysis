@@ -73,7 +73,8 @@ def create_vertical_paired_violins(data_dict,comparison_p_values, sample_ids=Non
     for cond_idx, condition in enumerate(condition_names):
         for samp_idx, sample_id in enumerate(sample_ids):
             d = data_dict[sample_id][condition]
-
+            if d.size ==0:
+                continue
             
             vp = ax.violinplot([d], positions=[samp_idx + offsets[cond_idx]], 
                              widths=[width],showextrema=False)
@@ -106,7 +107,7 @@ def create_vertical_paired_violins(data_dict,comparison_p_values, sample_ids=Non
     return fig, ax
 
 def load_read_table(sample_id:str,mode:str):
-    in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/short_read_variants')
+    in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/read_variant_store/variant_short_read_bam_long_read')
     filename = f'{sample_id}_{mode}_reads.parquet'
     in_path = in_dir/filename
     in_df = pl.scan_parquet(in_path)
@@ -143,7 +144,7 @@ def get_sample_data(sample_id):
     read_table = read_table.with_columns((pl.col('tumor_probability')>=0.5).alias('tumor_read'))
     aggregate_data = read_table.group_by(['chromosome','position','SAGE_filter_status']).agg(pl.col('tumor_read').mean().alias('average_tumor_read'))
 
-
+   
     return aggregate_data.collect()
 
 
@@ -167,7 +168,7 @@ def get_all_sample_data():
         sample_data[plot_sample_id]['SAGE Fail'] = sample_variant_table.filter(pl.col('SAGE_filter_status')=='fail')['average_tumor_read'].to_numpy()
         sample_data[plot_sample_id]['SAGE Pass'] = sample_variant_table.filter(pl.col('SAGE_filter_status')=='pass')['average_tumor_read'].to_numpy()
         
-
+    
     return sample_data,pl.concat(variant_summary_store)
 
 def get_comparison_p_values(sample_data):
@@ -181,14 +182,12 @@ if __name__ =='__main__':
     
     sample_data,variant_table = get_all_sample_data()
 
-    
-    
-    #sample_data = get_fake_sample_data(col,variant_type)
+
     comparison_p_values  = get_comparison_p_values(sample_data)
     
     colors = ["#0a8d50","#be5916"]
     fig,ax = create_vertical_paired_violins(sample_data,comparison_p_values,list(sample_data.keys()),colors=colors,legend_title='Variant Status')
-    ax.set_ylabel('Test')
+    ax.set_ylabel('Proportion of variant reads\npredicted tumor')
     ax.set_xlabel('Sample ID')
     #ax.set_title(f'Variant Type : {variant_type.capitalize()}')
     plt.tight_layout()

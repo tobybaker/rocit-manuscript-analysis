@@ -60,7 +60,7 @@ def load_auc(path):
 def get_auc(sample_id,mode):
     #/053_TU/053_TU_use_cell_map_False_use_sample_distribution_True/train_dataset.parquet
     
-    
+
     if mode =='Complete Data':
         
         base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/predictions/main_predictions/')
@@ -85,7 +85,7 @@ def get_auc(sample_id,mode):
     
     prediction_dir = sample_dir/f'{sample_id}_use_cell_map_{use_cell_map}_use_sample_distribution_{use_sample_distribution}'
     path =prediction_dir/'test_dataset.parquet'
-    print(path)
+
     return load_auc(path)
 def load_sample_data():
     all_sample_data ={}
@@ -93,10 +93,8 @@ def load_sample_data():
     for sample_id in ['216_TU', '244_TU', '264_TU', '053_TU','BS14772_TU', 'BS15145_TU']:
         sample_data = {}
         for mode in modes:
-            if mode =='Methylation Only':
-                sample_data[mode] = 0.5
-            else:
-                sample_data[mode] = get_auc(sample_id,mode)
+            
+            sample_data[mode] = get_auc(sample_id,mode)
         all_sample_data[sample_id.split('_')[0]] = sample_data
     return all_sample_data
 
@@ -149,17 +147,20 @@ def plot_custom_training_runs():
 
     sample_data = load_sample_data()
 
+
     aggregated_data = get_aggregated_data(sample_data)
+
+   
     #main_path = '../../paper_plots/figure_2/data_input_comparison.png'
-    main_path = 'test.png'
+    main_path = '/hot/user/tobybaker/ROCIT_Paper/out_paper/plots/model_performance/custom_input_aggregated.png'
     plot_aggregated_data(aggregated_data,main_path)
-    #plot_aggregated_data(aggregated_data,main_path.replace('.png','.pdf'))
+    plot_aggregated_data(aggregated_data,main_path.replace('.png','.pdf'))
     
         
     #sup_path = '../../paper_plots/supplementary_figures/data_input_comparison_by_sample.png'
-    sup_path = 'test_by_sample.png'
+    sup_path = '/hot/user/tobybaker/ROCIT_Paper/out_paper/plots/model_performance/custom_input_by_sample.png'
     plot_grouped_bar_chart(sample_data, 'Model performance by input data',sup_path)
-    #plot_grouped_bar_chart(sample_data, 'Model performance by input data',sup_path.replace('.png','.pdf'))
+    plot_grouped_bar_chart(sample_data, 'Model performance by input data',sup_path.replace('.png','.pdf'))
 
 
 if __name__ == "__main__":

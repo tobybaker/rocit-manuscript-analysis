@@ -57,7 +57,9 @@ def load_predictions(sample_id:str,add_normal:bool):
     predictions = pl.scan_parquet(predictions_path)
     
     #predictions = predictions.rename({'Sample_ID':'sample_id','Read_Index':'read_index','Chromosome':'chromosome','Tumor_Probability':'tumor_probability'})
-    predictions = predictions.with_columns(pl.col('chromosome').cast(pl.Categorical))
+    predictions = predictions.with_columns(pl.col('chromosome').cast(pl.Categorical),pl.col('read_index').cast(pl.Categorical))
+    read_labels = read_labels.with_columns(pl.col('read_index').cast(pl.Categorical))
+    read_extent = read_extent.with_columns(pl.col('read_index').cast(pl.Categorical))
     predictions = predictions.join(read_extent,how='inner',on=['chromosome','read_index'])
     predictions = predictions.join(read_labels,on=['read_index'],how='anti')
     predictions = predictions.with_columns(pl.col('tumor_probability')>=0.5)
@@ -144,12 +146,12 @@ def plot_share_data_summary(share_data_summary,add_normal:bool):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     plt.tight_layout()
-    plt.savefig(plot_dir/f'expected_share_correlation_{add_normal}.png')
-    plt.savefig(plot_dir/f'expected_share_correlation_{add_normal}.pdf')
+    plt.savefig(plot_dir/f'expected_share_correlation.png')
+    plt.savefig(plot_dir/f'expected_share_correlation.pdf')
 if __name__ =='__main__':
     sample_ids = ['BS14772','BS15145','216','244','264','053']
-    for add_normal in [True,False]:
-        share_data = load_all_share_data(sample_ids,add_normal)
-        share_data_summary = summarise_share_data(share_data,sample_ids)
-        
-        plot_share_data_summary(share_data_summary,add_normal)
+
+    share_data = load_all_share_data(sample_ids,add_normal=False)
+    share_data_summary = summarise_share_data(share_data,sample_ids)
+    
+    plot_share_data_summary(share_data_summary,add_normal=False)

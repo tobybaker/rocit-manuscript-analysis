@@ -18,13 +18,14 @@ def load_tumor_predictions(sample_id:str):
     filename = f'train_{sample_id}_TU_add_normal_False_out_{sample_id}_TU_all_reads.parquet'
     in_path = sample_dir/filename
     in_df = pl.scan_parquet(in_path)
-    in_df = in_df.with_columns(pl.col('sample_id').cast(pl.Categorical),pl.col('read_index').cast(pl.Categorical),pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
+    in_df = in_df.with_columns(pl.lit(sample_id).cast(pl.Categorical).alias('sample_id'))
+    in_df = in_df.with_columns(pl.col('read_index').cast(pl.Categorical),pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
     return in_df
 
 
 def load_variant_data(sample_id:str):
     
-    in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/long_read_variants_with_short_read_status/')
+    in_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/read_variant_store/variant_long_read_bam_long_read')
     filename = f'{sample_id}_TU_reads.parquet'
     filepath = in_dir/filename
     in_df = pl.scan_parquet(filepath)
@@ -48,7 +49,6 @@ def load_variant_data(sample_id:str):
             (pl.col('SAGE_filter_status')=='pass').alias('in_sage')
         )
     )
-    #in_df['In_SAGE'] = in_df['SAGE_Status'] =='PASS'
 
 
     return in_df
@@ -102,18 +102,7 @@ def plot_sage_filter_status(all_variant_data):
     plt.savefig('sage_filter_status.png')
     plt.savefig('sage_filter_status.pdf')
 
-def load_variant_labels():
-    in_dir = '/hot/user/selinawu/project-ROCIT/sSNV/analyze_variant_calls/analysis_outputs/'
-    df_store = []
-    for filename in ['sageNP_dsPASS_per_snv_reasoning.tsv','sageNP_dsPASS_per_indel_reasoning.tsv']:
-        filepath = os.path.join(in_dir,filename)
-        in_df = pd.read_csv(filepath,sep="\t")
-        
-        in_df = in_df.rename(columns={'chrom':'Chromosome','pos':'Position','reason.category':'Reason','sample':'Sample_ID'})
-        in_df = in_df[['Sample_ID','Chromosome','Position','Reason']]
-        in_df['Sample_ID'] = in_df['Sample_ID'].map(plotting_tools.get_sample_mapping())
-        df_store.append(in_df.copy())
-    return pd.concat(df_store)
+
 
 def plot_reason_histogram(all_variant_data):
     reason_data = all_variant_data[(all_variant_data['SAGE_Status']!='PASS') & (~all_variant_data['Reason'].isnull())].copy()
@@ -136,7 +125,7 @@ def plot_reason_histogram(all_variant_data):
 if __name__ =='__main__':
 
     
-
+    plot_dir = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/plots/snv_calling')
     all_variant_data = load_all_variant_data()
     all_variant_data = all_variant_data.collect()
     all_variant_data.write_parquet('/scratch/all_variant_data.parquet')
@@ -148,8 +137,8 @@ if __name__ =='__main__':
     
     plot_variant_histogram(all_variant_data,ax,'Reads containing somatic variants')
     
-    plt.savefig('somatic_variant_reads_tumor_probability.png')
-    plt.savefig('somatic_variant_reads_tumor_probability.pdf')
+    plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability.png')
+    plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability.pdf')
     
 
     fig,axs = plt.subplots(2,4,figsize=(10,5))
@@ -163,16 +152,16 @@ if __name__ =='__main__':
         plot_variant_histogram(sample_data,axs[plt_count],title=sample_id[0],short_legend=True)
         plt_count+=1
     fig.suptitle('Reads containing somatic variants')
-    axs[-1].axis('off')  # Hide axes frame, ticks, etc.
-    axs[-2].set_visible(False)
+    axs[-2].axis('off')  # Hide axes frame, ticks, etc.
+    axs[-1].set_visible(False)
 
     # Making the bigger text legend on the final axis
     handles, labels = axs[0].get_legend_handles_labels()
-    axs[-1].legend(handles, ['SAGE unsupported variant','SAGE supported variant'], loc='center left')
+    axs[-2].legend(handles, ['SAGE unsupported variant','SAGE supported variant'], loc='center left')
 
     plt.tight_layout()
-    plt.savefig('somatic_variant_reads_tumor_probability_by_sample.png')
-    plt.savefig('somatic_variant_reads_tumor_probability_by_sample.pdf')
+    plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability_by_sample.png')
+    plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability_by_sample.pdf')
 
 
     

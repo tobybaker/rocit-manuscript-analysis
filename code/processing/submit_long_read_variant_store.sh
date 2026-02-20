@@ -7,4 +7,4 @@
 #SBATCH --time=24:00:00
 #SBATCH --array=0-5
 
-~/miniconda3/envs/pytorch_env/bin/python get_read_variant_store.py $SLURM_ARRAY_TASK_ID long_read
+~/miniconda3/envs/pytorch_env/bin/python get_read_variant_store.py $SLURM_ARRAY_TASK_ID long_read long_read

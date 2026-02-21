@@ -9,7 +9,6 @@ from sklearn.metrics import roc_auc_score,matthews_corrcoef,f1_score
 
 import latex_page_maker
 import plot_custom_training_runs
-#import plot_xgboost_transformer_classification
 
 from pathlib import Path
 
@@ -549,10 +548,6 @@ if __name__ =='__main__':
 
     plot_overall_probability_distributions(sample_ids)
 
-    print('wee')
-
-    #
-    #plot_xgboost_transformer_classification.plot_xgboost_transformer_classification()
     
     latex_page_maker.get_latex_document(sample_data,sample_data_summary)
     

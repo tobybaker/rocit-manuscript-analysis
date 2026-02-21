@@ -99,6 +99,6 @@ if __name__ =='__main__':
     plot_table = plot_table.join(expected_share_df,how='inner',on='sample_id')
     text_out_dir = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/text')
     plot_table.write_csv(text_out_dir/'proportion_variant_reads.tsv',separator='\t')
-    exit()
+    
     plot_missing_expected_share(plot_table)
     

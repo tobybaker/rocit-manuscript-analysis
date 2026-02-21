@@ -131,7 +131,7 @@ if __name__ =='__main__':
     all_variant_data.write_parquet('/scratch/all_variant_data.parquet')
     all_variant_data = pl.read_parquet('/scratch/all_variant_data.parquet')
 
-
+    
     fig,ax = plt.subplots(1,1,figsize=(6,4))
 
     

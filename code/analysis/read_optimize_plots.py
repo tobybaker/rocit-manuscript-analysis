@@ -16,6 +16,7 @@ from matplotlib.lines import Line2D
 from scipy.stats import mannwhitneyu
 from tqdm import tqdm
 
+from rocit.constants import HUMAN_CHROMOSOME_ENUM
 
 MODIFICATION_THRESHOLD = 0.1
 PROBABILITY_THRESHOLD = 0.2
@@ -123,7 +124,7 @@ def load_dataframe(filepath: str) -> pl.DataFrame:
     in_df = in_df.with_columns(
         (pl.col("tumor_to_non_tumor") | pl.col("non_tumor_to_tumor")).alias("successful")
     )
-
+    in_df = in_df.with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
     return in_df
 
 def get_read_data(sample_data: pl.DataFrame) -> pl.DataFrame:
@@ -440,7 +441,7 @@ def plot_switch_directions_by_type_penalty(sample_data):
 def load_cell_map_data():
     base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/')
     cell_type_path = base_dir/'cell_type_average_methylation_atlas.parquet'
-    cell_map_df = pl.scan_parquet(cell_type_path)
+    cell_map_df = pl.scan_parquet(cell_type_path).with_columns(pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
     return cell_map_df
 
 def load_sample_dist_df(sample_id):
@@ -449,7 +450,7 @@ def load_sample_dist_df(sample_id):
     sample_dist_path = base_dir/f'{sample_id}_methylation_distribution.parquet'
     sample_dist_df = pl.scan_parquet(sample_dist_path).select(['chromosome','position','methylation_percentile_50'])
     
-    sample_dist_df = sample_dist_df.with_columns(pl.lit(sample_id).alias("sample_id"))
+    sample_dist_df = sample_dist_df.with_columns(pl.lit(sample_id).alias("sample_id"),pl.col('chromosome').cast(HUMAN_CHROMOSOME_ENUM))
 
     return sample_dist_df
         
@@ -463,6 +464,7 @@ def get_sample_distribution_data(sample_data):
 def get_supplementary_annotations(sample_data):
     cell_map_data = load_cell_map_data()
     sample_distribution = get_sample_distribution_data(sample_data)
+    
     sample_data = sample_data.lazy().join(cell_map_data,on=['chromosome','position'],how='inner')
     sample_data = sample_data.join(sample_distribution,on=['sample_id','chromosome','position'],how='inner')
     return sample_data.collect()
@@ -930,13 +932,14 @@ def plot_read_perturbation(read_data,sample_data):
     plot_data = plot_data.sort(by='position')
     
     perturbation = np.where((plot_data['original_methylation']-plot_data['modified_methylation']).abs()>0.1,plot_data['modified_methylation'].to_numpy(),np.nan)
-    fig,axs = plt.subplots(3,1,figsize=(10,5))
+    fig,axs = plt.subplots(3,1,figsize=(10,3.4))
 
-    im = axs[0].imshow(plot_data['original_methylation'].to_numpy().reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
+    N_REPEATS = 5
+    im = axs[0].imshow(np.repeat(plot_data['original_methylation'].to_numpy().reshape(1,-1),N_REPEATS,axis=0),cmap='coolwarm',vmin=0.0,vmax=1.0)
     axs[0].set_title(f'Original Read\nTumor Read Probability {plot_data["original_probability"][0]:.2f}')
-    axs[1].imshow(perturbation.reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
+    axs[1].imshow(np.repeat(perturbation.reshape(1,-1),N_REPEATS,axis=0),cmap='coolwarm',vmin=0.0,vmax=1.0)
     axs[1].set_title('Change Methylation at Specific CpG Sites')
-    axs[2].imshow(plot_data['modified_methylation'].to_numpy().reshape(1,-1),cmap='coolwarm',aspect='auto',vmin=0.0,vmax=1.0)
+    axs[2].imshow(np.repeat(plot_data['modified_methylation'].to_numpy().reshape(1,-1),N_REPEATS,axis=0),cmap='coolwarm',vmin=0.0,vmax=1.0)
     axs[2].set_title(f'Perturbed Read\nTumor Read Probability {plot_data["modified_probability"][0]:.2f}')
     
     for i in range(3):
@@ -968,7 +971,7 @@ if __name__ =="__main__":
 
     
     plot_read_perturbation(read_data,sample_data)
-    
+    exit()
     
     plot_supplementary_variance_violin(sample_data)
     

@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=runsim        # Job name
-#SBATCH --partition=NC24adsA100 # Partition or queue name
+#SBATCH --partition=NC24adsA100,NC24adsA100_8TB # Partition or queue name
 #SBATCH --nodes=1                     # Number of nodes
-#SBATCH --time=1:00:00                # Maximum runtime (D-HH:MM:SS)
+#SBATCH --time=12:00:00            # Maximum runtime (D-HH:MM:SS)
 #SBATCH --mem=0
 #SBATCH --exclusive
 #SBATCH --array=0-5

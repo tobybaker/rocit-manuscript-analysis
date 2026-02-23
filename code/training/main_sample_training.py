@@ -4,8 +4,7 @@ import torch
 import datahelper
 
 from pathlib import Path
-from rocit import train,predict,ROCITInferenceStore,TrainingParams
-
+from rocit import train,predict,ROCITInferenceStore
 
 def clean_and_create_dir(dir_path:Path):
     if dir_path.exists():
@@ -33,7 +32,7 @@ def run_full_dataset_inference(train_result,out_sample_id,experiment_name,full_p
             run_id = out_sample_id
         inference_store = datahelper.get_sample_inference_store(run_id)
         
-        predictions = predict(inference_store,train_result)
+        predictions = predict(inference_store,train_result.best_checkpoint_path)
 
         out_path = full_predictions_dir/f"train_{experiment_name}_out_{run_id}_all_reads.parquet"
         predictions.write_parquet(out_path)
@@ -51,17 +50,16 @@ if __name__ =="__main__":
     run_param = run_params[int(sys.argv[1])]
     
 
-    sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}_RUN_2"
+    sample_predictions_dir = main_predictions_dir/f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     train_predictions_dir = clean_and_create_dir(sample_predictions_dir/'train_datasets')
     full_predictions_dir = clean_and_create_dir(sample_predictions_dir/'full_datasets')
     
-    experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}_RUN_2"
+    experiment_name = f"{run_param['Sample_ID']}_add_normal_{run_param['Add_Normal']}"
     
     train_data_store = datahelper.get_sample_train_datasets(run_param['Sample_ID'],run_param['Add_Normal'])
 
     clean_and_create_dir(log_dir/experiment_name)
-    training_params = TrainingParams(early_stopping_patience=5)
-    train_result = train(train_data_store,log_dir,experiment_name,training_params=training_params)
+    train_result = train(train_data_store,log_dir,experiment_name)
     
     run_full_dataset_inference(train_result,run_param['Sample_ID'],experiment_name,full_predictions_dir)
 

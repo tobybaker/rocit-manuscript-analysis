@@ -31,21 +31,19 @@ if __name__ =="__main__":
 
     param_config = {}
     param_config['Sample_ID'] = ['216_TU','244_TU','264_TU','053_TU','BS14772_TU','BS15145_TU']
-    param_config['Read_Length'] = [150,500,1000,2500,5000,7500,10000,12500,15000]
+    #param_config['Read_Length'] = [150,500,1000,2500,5000,7500,10000,12500,15000]
+    param_config['Read_Length'] = [15000]
     run_params = datahelper.get_run_params(param_config)
-    
-    
+       
     run_param = run_params[int(sys.argv[1])]
     sample_predictions_dir = predictions_dir/run_param['Sample_ID']
+    sample_predictions_dir.mkdir(exist_ok=True)
 
-
-    sample_predictions_dir = clean_and_create_dir(sample_predictions_dir)
-    
     experiment_name = f"{run_param['Sample_ID']}_read_length_{run_param['Read_Length']}"
     
     train_data_store = datahelper.get_sample_train_length_datasets(run_param['Sample_ID'],read_length=run_param['Read_Length'])
     clean_and_create_dir(log_dir/experiment_name)
-    t = TrainingParams(max_epochs=1)
-    train_result = train(train_data_store,log_dir,experiment_name,training_params=t)
+    
+    train_result = train(train_data_store,log_dir,experiment_name)
     
     run_training_inference(train_result,train_data_store,run_param['Sample_ID'],experiment_name,sample_predictions_dir)

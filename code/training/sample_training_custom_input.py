@@ -3,15 +3,15 @@ import shutil
 import torch
 import datahelper
 import polars
-import pytorch_lightning as pl
+import lightning as L
 from pathlib import Path
 from rocit import ROCITInferenceStore,TrainingParams,ROCITTrainResult
 
 from dataclasses import dataclass
 from torch.utils.data import Dataset, DataLoader, random_split
 
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.loggers import CSVLogger
 
 from rocit.models import ROCITClassifier
 from rocit.data import ROCITDataModule,ReadDataset,EmbeddingStore
@@ -29,7 +29,7 @@ from torchmetrics.classification import (
     BinaryMatthewsCorrCoef
 )
 
-class ROCITCustomModel(pl.LightningModule):
+class ROCITCustomModel(L.LightningModule):
     def __init__(
         self,
         model_dim:int,
@@ -254,7 +254,7 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
         filename="best-checkpoint",
     )
 
-    data_module = ROCITDataModule(rocit_dataset.train_dataset,rocit_dataset.test_dataset,rocit_dataset.val_dataset,training_params.batch_size,num_workers=7)
+    data_module = ROCITDataModule(rocit_dataset.train_dataset,rocit_dataset.test_dataset,rocit_dataset.val_dataset,training_params.batch_size)
 
     warmup_steps = training_params.warmup_steps
 
@@ -275,10 +275,10 @@ def train_custom_input(rocit_dataset,log_dir,experiment_name,use_cell_map,use_sa
     
     model.model.set_embedding_context(rocit_dataset.embedding_sources)
 
-    trainer = pl.Trainer(
+    trainer = L.Trainer(
     max_epochs=training_params.max_epochs,
     accelerator="auto",
-    devices="auto",
+    devices=1,
     gradient_clip_val=training_params.gradient_clip_val,
     callbacks=[early_stopping, checkpointing],
     log_every_n_steps=training_params.n_log_steps,
@@ -299,14 +299,13 @@ def predict_custom_input(inference_datastore,training_result,use_cell_map,use_sa
     model = ROCITCustomModel.load_from_checkpoint(training_result.best_checkpoint_path)
     
     model.model.set_embedding_context(inference_datastore.embedding_sources)
-    trainer =pl.Trainer(accelerator="auto", devices=1)
+    trainer =L.Trainer(accelerator="auto", devices=1)
 
     predict_loader =  DataLoader(
             inference_datastore.inference_dataset,
             batch_size=inference_batch_size,
             shuffle=False,
             drop_last=False,
-            num_workers=7,
         )
 
     predictions = trainer.predict(model, dataloaders=predict_loader)

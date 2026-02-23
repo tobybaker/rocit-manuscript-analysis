@@ -22,6 +22,7 @@ USE_CHROMOSOMES = [f'chr{x}' for x in range(1,23)] +['chrX']
 TEST_CHROMOSOMES = ['chr4','chr21']
 VAL_CHROMOSOMES = ['chr5','chr22']
 NON_TRAIN_CHROMOSOMES = set(TEST_CHROMOSOMES) | set(VAL_CHROMOSOMES)
+TRAIN_CHROMOSOMES = [chromosome for chromosome in USE_CHROMOSOMES if not chromosome in NON_TRAIN_CHROMOSOMES]
 def tumor_to_normal_id(tumor_id):
     if not 'TU' in tumor_id:
         raise ValueError(f'{tumor_id} is not a tumor id.')
@@ -44,9 +45,9 @@ def load_cell_map_df(scan=False):
     return cell_map_df
     
 def load_sample_dist_df(sample_id,scan=False):
-    base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_distributions/tumor')
+    base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data/cpg_methylation_distribution/')
 
-    sample_dist_path = base_dir/f'{sample_id}/combined_distribution.parquet'
+    sample_dist_path = base_dir/f'{sample_id}_methylation_distribution.parquet'
     sample_dist_df = read_parquet(sample_dist_path,scan=scan)
     
     sample_dist_df = sample_dist_df.with_columns(
@@ -140,12 +141,12 @@ def get_sample_training_reads(sample_id:str):
     return read_data
 
 def get_sample_inference_reads(sample_id:str):
-    base_dir =Path('/hot/user/tobybaker/CellTypeClassifier/data/processed_methylation_info_redo/tumor/')
+    base_dir =Path('/hot/user/tobybaker/ROCIT_Paper/input_data/cpg_methylation')
     data_dir = base_dir/ sample_id
     
     read_store = []
     with pl.StringCache():
-        for filepath in data_dir.glob(f'cpg_methylation_data_*.parquet'):
+        for filepath in data_dir.glob(f'*_cpg_methylation.parquet'):
             df = load_read_data(filepath,scan=True)
             df = df.with_columns(
                 pl.lit(sample_id).cast(pl.Categorical).alias("sample_id")
@@ -167,6 +168,9 @@ def get_sample_inference_store(sample_id):
     embedding_sources = {sample_source.name:sample_source,cell_map_source.name:cell_map_source}
 
     read_store = get_sample_inference_reads(sample_id)
+
+
+    print(read_store)
 
     label_cols = ['sample_id','read_index','chromosome']
     key_cols = ['read_index']
@@ -216,7 +220,7 @@ def get_sample_train_datasets(sample_id,add_normal=False):
     return rocit.ROCITTrainStore(train_dataset_builder.build(),val_dataset_builder.build(),test_dataset_builder.build(),embedding_sources)
 
 def load_read_extent_store(sample_id:str):
-    read_extent_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data/read_extent')
+    read_extent_dir = Path('/hot/user/tobybaker/ROCIT_Paper/output/read_extent')
     read_extent_path = read_extent_dir/f'{sample_id}_read_extent.parquet'
     read_extent =read_parquet(read_extent_path)
     
@@ -255,7 +259,7 @@ def get_sample_train_length_datasets(sample_id,read_length:int,min_length:int=15
     read_extent = read_extent.with_columns(
     pl.Series("sampled_read_start", RNG.integers(
         0, 
-        read_extent["read_length"].to_numpy() -read_length
+        read_extent["read_length"].to_numpy() -read_length+1
     ))
     )
 

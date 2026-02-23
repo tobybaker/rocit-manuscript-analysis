@@ -43,8 +43,8 @@ class MethylationDataStore:
      
 
     def load_cell_types(self):
-        base_dir = Path('/hot/user/tobybaker/CellTypeClassifier/data')
-        cell_type_path = base_dir/'complete_cell_type_methylation_with_average_only.parquet'
+        base_dir = Path('/hot/user/tobybaker/ROCIT_Paper/input_data')
+        cell_type_path = base_dir/'cell_type_average_methylation_atlas.parquet'
 
         match_col = 'average_methylation_'
 
@@ -233,7 +233,7 @@ if __name__ =='__main__':
     batch_size =1024
     train_data_store = datahelper.get_sample_train_datasets(sample_id,add_normal=False)
     
-    L0_penalties = ['5.0','15.0','25.0']
+    L0_penalties = ['5.0','10.0','15.0']
 
     
     tumor_classifier = load_frozen_model(checkpoint_path,train_data_store)
@@ -242,7 +242,7 @@ if __name__ =='__main__':
             batch_size=batch_size,
             shuffle=False,
             drop_last=False,
-            num_workers=7,
+            num_workers=18,
         )
     for batch_index,batch in enumerate(dataloader):
         
@@ -258,7 +258,7 @@ if __name__ =='__main__':
             log_path = log_dir/f'penalty_{L0_penalty}_batch_index_{batch_index}.tsv'
             log_df.write_csv(log_path,separator="\t")
             print('done')
-        if batch_index>=3:
+        if batch_index>=9:
             break
 
 

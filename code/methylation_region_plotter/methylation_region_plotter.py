@@ -62,9 +62,6 @@ def get_gene_plot_coordinates(gene,positions):
     else:
         gene_promoter_start = gene_end
         gene_promoter_end = gene_end +2000
-
-    print(gene.name,gene.start,gene.end)
-    print(gene.name,gene.strand,pos_strand)
     
     gene_plot_start = find_closest_index(positions,gene_start)
     gene_plot_end = find_closest_index(positions,gene_end)
@@ -252,8 +249,8 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
 
     region_cmap = create_two_color_cmap('#FFF','#fff129')
 
-    scale_factor = np.sqrt(60.0/(window_array.shape[0]*window_array.shape[1]))
-    print('scale factor',scale_factor)
+    scale_factor = np.sqrt(50.0/(window_array.shape[0]*window_array.shape[1]))
+
     scale_factor = scale_factor*0.75
     # Create the plot
     n_cols = len(discrete_data)+1
@@ -349,7 +346,7 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
     fig.legend(
         handles=custom_handles,
         loc='upper left',
-        bbox_to_anchor=(0.75, 0.95),   # fine-tune these to clear the colorbar
+        bbox_to_anchor=(0.8, 0.95),   # fine-tune these to clear the colorbar
         bbox_transform=fig.transFigure,
         frameon=True,
         fontsize=9,
@@ -372,8 +369,6 @@ def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_
         index=['chromosome', 'read_index'] + discrete_cols,
         values='methylation',
     )
-
-    print(pivoted_df)
 
     in_region = (
         read_data_bin
@@ -435,16 +430,13 @@ def plot_region(methylation_data,discrete_cols,chromosome,region_start,region_en
         .alias('in_region')
     )
 
-    print(significant_region_data)
-    
-    
     try:
     
         window_array,discrete_data,in_region,positions,read_indices = get_window_array(significant_region_data,discrete_cols,min_cpgs_per_read=40,min_cpgs_per_col=10)
     except ValueError as e:
         print(e)
         return None
-    print(window_array)
+    
     region_title = f'{chromosome} - {np.round(region_start-window_buffer,-2):,}-{np.round(region_end+window_buffer,-2):,}'
 
     title = f'{region_title}'

@@ -66,13 +66,13 @@ def get_expected_share_df(sample_ids):
     return pl.DataFrame(store)
 def plot_missing_expected_share(plot_table):
 
-    fig,ax = plt.subplots(1,1,figsize=(6,4))
+    fig,ax = plt.subplots(1,1,figsize=(4.5,3))
     #sample_mapping = {'BS14772':'Prostate A','BS15145':'Prostate B','216':'Ovarian A','244':'Ovarian B','264':'Ovarian C'}
     for sample_id,sample_data in plot_table.group_by('sample_id',maintain_order=True):
         sample_id = sample_id[0]
         ax.scatter(1.0-sample_data['expected_share'],sample_data['prop_prob_low'],label=sample_id,s=50,alpha=0.8,c=plotting_tools.get_sample_color_scheme()[sample_id])
         
-    ax.legend()
+    ax.legend(ncol=2)
     ax.set_xlabel('Expected proportion of non-tumor reads')
     ax.set_ylabel('Proportion of variant reads\npredicted non-tumor')
     ax.set_title(f"Reads containing SAGE unsupported variants")
@@ -97,8 +97,20 @@ if __name__ =='__main__':
     plot_table = variant_prediction_status.join(alt_matched_normal,how='inner',on='sample_id')
   
     plot_table = plot_table.join(expected_share_df,how='inner',on='sample_id')
-    text_out_dir = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/text')
-    plot_table.write_csv(text_out_dir/'proportion_variant_reads.tsv',separator='\t')
+    
     
     plot_missing_expected_share(plot_table)
+
+    out_table = plot_table.rename({'prop_prob_low':'Proportion_With_Low_Probability','proportion_alt_matched_normal':'Proportion_Alt_in_Short_Read_Matched_Normal','expected_share':'Expected_Share_Non_Tumor'})
+    
+    out_table = out_table.with_columns(
+    (pl.col(pl.Float32, pl.Float64) * 100)
+    .round(2)
+    .cast(pl.String)
+    + pl.lit("%")
+    )
+    text_out_dir = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/text')
+
+    
+    out_table.write_csv(text_out_dir/'proportion_variant_reads.tsv',separator='\t')
     

@@ -48,7 +48,7 @@ def format_pvalue(p):
     if p < 0.05: return '*'
     return ''
 def create_vertical_paired_violins(data_dict,comparison_p_values, sample_ids=None, condition_names=None, 
-                                 colors=None, figsize=(10, 3),legend_title=None):
+                                 colors=None, figsize=(7.5, 2.5),legend_title=None):
     
     if sample_ids is None:
         sample_ids = list(data_dict.keys())

@@ -132,11 +132,11 @@ if __name__ =='__main__':
     all_variant_data = pl.read_parquet('/scratch/all_variant_data.parquet')
 
     
-    fig,ax = plt.subplots(1,1,figsize=(6,4))
+    fig,ax = plt.subplots(1,1,figsize=(4.5,3))
 
     
     plot_variant_histogram(all_variant_data,ax,'Reads containing somatic variants')
-    
+    plt.tight_layout()
     plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability.png')
     plt.savefig(plot_dir/'somatic_variant_reads_tumor_probability.pdf')
     

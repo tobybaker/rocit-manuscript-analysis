@@ -25,7 +25,7 @@ MAIN_DIR = Path('/hot/user/tobybaker/ROCIT_Paper/out_paper/')
 PLOT_DIR = MAIN_DIR /'plots/read_interpretation'
 SUPPLEMENTARY_PLOT_DIR = MAIN_DIR/'plots/supplementary_figures'
 LOG_PATH = MAIN_DIR /'text/read_optimize_out.txt'
-MAIN_PENALTY=15
+MAIN_PENALTY=10
 
 TYPE_COLOR_SCHEME = ['#9bcf61','#D3737B']
 def get_significance_stars(p):
@@ -161,6 +161,10 @@ def load_sample_data(sample_ids):
         for filename in os.listdir(sample_dir):
             if not filename.endswith('.parquet'):
                 continue
+            batch_index = int(filename.split('_')[-1].replace('.parquet',''))
+            if batch_index >=5:
+                continue
+
             
             filepath = os.path.join(sample_dir,filename)
             in_df = load_dataframe(filepath)
@@ -220,19 +224,23 @@ def plot_sample_success_proportions(read_data):
     plt.savefig(PLOT_DIR / 'sample_success_reads.png')
     plt.savefig(PLOT_DIR / 'sample_success_reads.pdf')
 
+
 def plot_frac_success_by_type(sample_data):
     sample_data = sample_data.filter(pl.col('penalty')==MAIN_PENALTY)
     sample_data =sample_data.select(['penalty','sample_id','read_index','tumor_predicted_read','successful']).unique()
     
     switch_by_type = sample_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("successful").mean())
-
+    write_to_log('=========FRAC SUCCESS MAIN OVERALL===========')
+    write_to_log(f'overal; {sample_data["successful"].mean():%}')
+    write_to_log('=========FRAC SUCCESS BY SAMPLE===========')
+    write_to_log(switch_by_type.sort(['sample_id','tumor_predicted_read']).to_pandas())
     switch_by_type_agg = switch_by_type.group_by("tumor_predicted_read")
     switch_by_type_agg = switch_by_type_agg.agg(
         pl.col("successful").mean().alias("mean"),
         pl.col("successful").std().alias("std")
     )
     switch_by_type_agg = switch_by_type_agg.sort("tumor_predicted_read", descending=True)
-        
+    
     fig,ax = plt.subplots(1,1,figsize=(2.8,3))
 
   
@@ -251,6 +259,42 @@ def plot_frac_success_by_type(sample_data):
     plt.savefig(PLOT_DIR / 'frac_success_by_type.png')
     plt.savefig(PLOT_DIR / 'frac_success_by_type.pdf')
 
+def plot_frac_success_by_sample(sample_data):
+    sample_data = sample_data.filter(pl.col('penalty')==MAIN_PENALTY)
+    sample_data =sample_data.select(['penalty','sample_id','read_index','tumor_predicted_read','successful']).unique().sort('penalty')
+    fig,ax = plt.subplots(2,3,figsize=(8.5,5))
+    ax = ax.flatten()
+    sample_id_order = list(plotting_tools.get_sample_mapping().values())
+    
+    for sample_id,sample_data in sample_data.partition_by('sample_id', as_dict=True).items():
+        sample_id = sample_id[0]
+        print(sample_id)
+        sample_id_mapped = plotting_tools.get_sample_mapping()[sample_id.split('_')[0]]
+        plt_count = sample_id_order.index(sample_id_mapped)
+        switch_by_type_agg = sample_data.group_by("tumor_predicted_read").agg(pl.col("successful").mean().alias('mean'))
+        
+       
+        switch_by_type_agg = switch_by_type_agg.sort("tumor_predicted_read", descending=True)
+
+
+        ax[plt_count].bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME)
+        ax[plt_count].set_xticks(np.arange(len(switch_by_type_agg)))
+   
+
+        #ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor\nn={n_tumor_to_non_tumor:,}',f'Non-Tumor to\nTumor\nn={non_tumor_to_n_tumor:,}'])
+        ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor',f'Non-Tumor to\nTumor'])
+        ax[plt_count].set_ylabel('Proportion of reads converted')
+        ax[plt_count].spines['top'].set_visible(False)
+        ax[plt_count].spines['right'].set_visible(False)
+        ax[plt_count].set_ylim(0,1.05)
+        ax[plt_count].set_title(sample_id_mapped)
+
+        plt_count +=1
+    
+    plt.tight_layout()
+    plt.savefig(SUPPLEMENTARY_PLOT_DIR / 'frac_success_by_type_sample.png')
+    plt.savefig(SUPPLEMENTARY_PLOT_DIR / 'frac_success_by_type_sample.pdf')
+
 def plot_frac_success_by_type_penalty(sample_data):
     
     sample_data =sample_data.select(['penalty','sample_id','read_index','tumor_predicted_read','successful']).unique().sort('penalty')
@@ -260,7 +304,7 @@ def plot_frac_success_by_type_penalty(sample_data):
     for penalty,penalty_data in sample_data.partition_by('penalty', as_dict=True).items():
         penalty = penalty[0]
         switch_by_type = penalty_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("successful").mean())
-
+        
         switch_by_type_agg = switch_by_type.group_by("tumor_predicted_read")
         switch_by_type_agg = switch_by_type_agg.agg(
             pl.col("successful").mean().alias("mean"),
@@ -285,6 +329,7 @@ def plot_frac_success_by_type_penalty(sample_data):
         ax[plt_count].set_title(f'Sparsity penalty\n{penalty}')
 
         plt_count +=1
+    
     plt.tight_layout()
     plt.savefig(PLOT_DIR / 'frac_success_by_type_penalty.png')
     plt.savefig(PLOT_DIR / 'frac_success_by_type_penalty.pdf')
@@ -393,6 +438,53 @@ def plot_switch_directions_by_type(sample_data):
     plt.tight_layout()
     plt.savefig(PLOT_DIR / 'switch_directions_by_type.png')
     plt.savefig(PLOT_DIR / 'switch_directions_by_type.pdf')
+
+def plot_switch_directions_by_type_sample(sample_data):
+    sample_data = sample_data.filter(
+        (pl.col('switched_cpg')) & 
+        (pl.col('successful') &
+         (pl.col('penalty')==MAIN_PENALTY))
+    )
+    sample_data = sample_data.with_columns((pl.col('original_methylation') < pl.col('modified_methylation')).alias('to_hyper'))
+    sample_data = sample_data.sort('sample_id')
+    fig,ax = plt.subplots(2,3,figsize=(8.5,5))
+    ax = ax.flatten()
+    sample_id_order = list(plotting_tools.get_sample_mapping().values())
+
+    for sample_id,sample_data in sample_data.partition_by('sample_id', as_dict=True).items():
+        sample_id = sample_id[0]
+        sample_id_mapped = plotting_tools.get_sample_mapping()[sample_id.split('_')[0]]
+        plt_count = sample_id_order.index(sample_id_mapped)
+        switch_by_type = sample_data.group_by("sample_id", "tumor_predicted_read").agg(pl.col("to_hyper").mean())
+
+        switch_by_type_agg = (
+            switch_by_type
+            .group_by("tumor_predicted_read")
+            .agg(
+                pl.col("to_hyper").mean().alias("mean"),
+                pl.col("to_hyper").std().alias("std"),
+            )
+            .sort("tumor_predicted_read", descending=True)
+        )
+        #write_to_log(f'penalty {penalty}')
+        #write_to_log(switch_by_type_agg.to_pandas().to_string())
+
+
+        ax[plt_count].bar(np.arange(len(switch_by_type_agg)),switch_by_type_agg['mean'],color=TYPE_COLOR_SCHEME,yerr=switch_by_type_agg['std'],capsize=5)
+        ax[plt_count].set_xticks(np.arange(len(switch_by_type_agg)))
+        
+        ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor',f'Non-Tumor to\nTumor'])
+        #ax[plt_count].set_xticklabels([f'Tumor to\n Non-Tumor\nn={n_tumor_to_non_tumor:,}',f'Non-Tumor to\nTumor\nn={non_tumor_to_n_tumor:,}'])
+        ax[plt_count].set_ylabel('Proportion of perturbations\nadding methylation')
+        ax[plt_count].spines['top'].set_visible(False)
+        ax[plt_count].spines['right'].set_visible(False)
+        ax[plt_count].set_ylim(0,1.05)
+        ax[plt_count].set_title(f'{sample_id_mapped}')
+
+
+    plt.tight_layout()
+    plt.savefig(SUPPLEMENTARY_PLOT_DIR / 'switch_directions_by_type_sample.png')
+    plt.savefig(SUPPLEMENTARY_PLOT_DIR / 'switch_directions_by_type_sample.pdf')
 
 def plot_switch_directions_by_type_penalty(sample_data):
     sample_data = sample_data.filter(
@@ -576,8 +668,8 @@ def plot_supplementary_variance_violin(sample_data):
 def get_labelled_cell_type_sample(sample_data):
     sample_data = sample_data[sample_data['successful'] &  (sample_data['penalty']==MAIN_PENALTY)].copy()
     sample_data['to_tumor'] = (sample_data['original_probability']<0.5) & (sample_data['modified_probability']>0.5)
-    sample_data['hypo_switch'] = (sample_data['original_methylation']>=0.5) & (sample_data['modified_methylation']<=0.5)
-    sample_data['hyper_switch'] = (sample_data['original_methylation']<=0.5) & (sample_data['modified_methylation']>=0.5)
+    sample_data['hypo_switch'] = sample_data['original_methylation']>sample_data['modified_methylation']
+    sample_data['hyper_switch'] = sample_data['original_methylation']<sample_data['modified_methylation']
     sample_data['cpg_movement'] = np.sign(sample_data['modified_methylation']-sample_data['original_methylation']).astype(int)
     
     cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
@@ -606,8 +698,8 @@ def get_cell_type_hits(all_samples):
         
 
         n_samples = len(sample_data)
-        sample_markers = sample_data[(sample_data['modified_methylation']-sample_data['original_methylation']).abs()>0.5]
-
+   
+        sample_markers = sample_data[sample_data['switched_cpg']]
 
         cell_type_cols = [col for col in sample_data.columns if col.startswith('average_methylation_')]
         cell_types = [col.replace('average_methylation_','') for col in cell_type_cols]
@@ -617,6 +709,7 @@ def get_cell_type_hits(all_samples):
             cell_type = cell_types[cell_type_index]
         
             cell_df = sample_markers[sample_markers[f'{cell_type}_marker']].copy()
+            
             if len(cell_df)<20:
                 continue
             
@@ -628,6 +721,7 @@ def get_cell_type_hits(all_samples):
             marker_rate = len(cell_df)/cell_df[f'{cell_type}_total'].iloc[0]
             row = {'cancer_type':cancer_type,'sample_id':sample_id,'cell_type':cell_type,'tumor_rate':tumor_agree,'marker_rate':marker_rate}
             return_data.append(row)
+            
     
     return pd.DataFrame(return_data)
 
@@ -641,9 +735,9 @@ def get_cell_type_color_scheme(cell_type):
     return '#808080'
 
 def get_cell_type_group(cell_type):
-    if 'Epithelial' in cell_type:
+    if 'epithelial' in cell_type:
         return 'Epithelial'
-    if 'Blood' in cell_type or 'Macrophage' in cell_type or 'CNVS' in cell_type:
+    if 'blood' in cell_type or 'macrophage' in cell_type or 'cnvs' in cell_type:
         return 'Immunue'
     return 'Other'
 
@@ -651,8 +745,8 @@ def add_custom_cell_type_legend(fig):
     #thank you gemini 3
     # Define (Label to display, Dummy string to generate color)
     legend_groups = [
-        ('Epithelial Cell Types', 'Epithelial'), # Contains 'Epithelial'
-        ('Immune Cell Types',     'Blood'),      # Contains 'Blood' to trigger the 2nd if-statement
+        ('Epithelial Cell Types', 'epithelial'), # Contains 'Epithelial'
+        ('Immune Cell Types',     'blood'),      # Contains 'Blood' to trigger the 2nd if-statement
         ('Other Cell Types',      'Other')       # Triggers the else statement
     ]
     
@@ -676,8 +770,7 @@ def plot_cell_type_hits(sample_data):
     sample_data = get_supplementary_annotations(sample_data)
     sample_data = sample_data.to_pandas()
     cell_type_scores = get_cell_type_hits(sample_data)
-    
-    
+
     cell_type_scores['color'] = cell_type_scores['cell_type'].apply(get_cell_type_color_scheme)
     cell_type_scores['cell_type_group'] = cell_type_scores['cell_type'].apply(get_cell_type_group)
     write_to_log('=====CELL TYPE HITS ====')
@@ -921,11 +1014,11 @@ def plot_read_perturbation(read_data,sample_data):
         pl.col("frac_switch").is_between(0.01, 0.1)
     )
     )
-
+    #print(read_data.to_pandas())
     plot_data = (
     sample_data
     .filter(
-        pl.col("read_index") == 'm84137_240611_154227_s3/199102432/ccs',
+        pl.col("read_index") == 'm84209_250513_225956_s2/104466572/ccs',
         pl.col("penalty") == MAIN_PENALTY,
     )
     )
@@ -955,6 +1048,21 @@ def plot_read_perturbation(read_data,sample_data):
     plt.savefig(PLOT_DIR / 'read_perturb_example.png')
     plt.savefig(PLOT_DIR / 'read_perturb_example.pdf')
 
+def write_main_sentence_summary(read_data):
+    read_data = read_data.filter(pl.col('penalty')==MAIN_PENALTY)
+    average_successful = read_data['successful'].mean()
+    average_successful_switch = read_data.filter(pl.col('successful'))['frac_switch'].mean()
+    out_str = f'Following this gradient descent approach (Methods) we were able to successfully change the classification of {average_successful:.2%}\% of reads by perturbing an average of {average_successful_switch:.2%}\% of CpGs in each read '
+    write_to_log('=========MAIN STRING =============')
+    write_to_log(out_str)
+
+def write_total_reads(read_data):
+    read_data = read_data.filter(pl.col('penalty')==MAIN_PENALTY)
+    
+    out_str = f'This left a total of {read_data.height} reads across the six samples in the cohort.'
+    print(out_str)
+    write_to_log('=========REMAINING READS =============')
+    write_to_log(out_str)
 if __name__ =="__main__":
     
 
@@ -969,13 +1077,22 @@ if __name__ =="__main__":
     
     read_data = get_read_data(sample_data)
 
+    write_total_reads(read_data)
+ 
+    plot_switch_directions_by_type_sample(sample_data)
+
+    plot_cell_type_hits(sample_data)
+    
+    write_main_sentence_summary(read_data)
+    plot_frac_success_by_sample(sample_data)
+    
     
     plot_read_perturbation(read_data,sample_data)
-    exit()
+    
     
     plot_supplementary_variance_violin(sample_data)
     
-    plot_cell_type_hits(sample_data)
+    
     
     write_to_log('=====Neighborhood analysis======')
     plot_neighbourhood_wrapper(sample_data,read_data,use_reference_positions=True)

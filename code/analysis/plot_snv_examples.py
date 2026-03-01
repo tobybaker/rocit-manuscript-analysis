@@ -60,7 +60,7 @@ if __name__ =="__main__":
     read_dfs = load_read_dfs(vcf_data,sample_id)
     
     
-    fig = plt.figure(figsize=(9,4))
+    fig = plt.figure(figsize=(8.9,8/3+0.2))
     gs_top = fig.add_gridspec(2, 1, top=0.88, bottom=0.65, hspace=0.25,left=0.01,right=0.77)
     ax1 = fig.add_subplot(gs_top[0])
     ax2 = fig.add_subplot(gs_top[1])

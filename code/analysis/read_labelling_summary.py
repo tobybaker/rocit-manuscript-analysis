@@ -109,7 +109,7 @@ def write_label_summary_text(read_summary_counts):
     label_proportion = (read_summary_counts['Tumor']+read_summary_counts['Non-Tumor'])/(read_summary_counts['Tumor']+read_summary_counts['Non-Tumor']+read_summary_counts['Unlabeled'])
     label_proportion = label_proportion*100
     out_text = f'In total, a mean of {np.mean(label_proportion):.4f}\\% (range {np.min(label_proportion):.4f} - {np.max(label_proportion):.4f}\\%) of reads in each bulk biopsy could be given a label, with a mean of {np.mean(tumor_proportion):.4f}\\% (range {np.min(tumor_proportion):.4f} - {np.max(tumor_proportion):.4f}\\%) of these reads identified as having tumor origin.'
-    out_path = '/hot/user/tobybaker/CellTypeClassifier/paper_plots/latex_tables/label_summary_text.txt'
+    out_path = '/hot/user/tobybaker/ROCIT_Paper/out_paper/text/label_summary_text.txt'
     with open(out_path,'w') as out_file:
         out_file.write(out_text)
 

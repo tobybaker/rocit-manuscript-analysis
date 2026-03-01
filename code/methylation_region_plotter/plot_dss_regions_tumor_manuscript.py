@@ -24,7 +24,7 @@ def get_params():
 def load_target_gene_data():
     chromosome = 'chr20'
     sample_id = '244'
-    region_data1 = {'sample_id':sample_id,'chromosome':chromosome,'start':43189750,'end':43204200,'gene':'PTPRT-DT'}
+    region_data1 = {'sample_id':sample_id,'chromosome':chromosome,'start':43189750+100,'end':43204200,'gene':'PTPRT-DT'}
     region_data2 = {'sample_id':sample_id,'chromosome':chromosome,'start':43171800,'end':43188300,'gene':'PTPRT'}
     return pl.DataFrame([region_data1,region_data2])
 

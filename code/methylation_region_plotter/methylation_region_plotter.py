@@ -22,6 +22,170 @@ from matplotlib.lines import Line2D
 
 FIRE_COLOR = "#2bff00"
 
+def _get_position_cols(pivoted_df: pl.DataFrame, meta_cols: set[str]) -> list[str]:
+    """Return the CpG position column names from the pivoted DataFrame."""
+    return [c for c in pivoted_df.columns if c not in meta_cols]
+
+
+def _sort_reads_by_position(observed: np.ndarray) -> np.ndarray:
+    """
+    Return an index array that sorts reads by their leftmost observed column,
+    breaking ties by rightmost (shortest first).
+
+    Parameters
+    ----------
+    observed : np.ndarray
+        Boolean array of shape (n_reads, n_positions).
+
+    Returns
+    -------
+    np.ndarray
+        Integer index array defining the sort order.
+    """
+    n_pos = observed.shape[1]
+    has_obs = observed.any(axis=1)
+    starts = np.where(has_obs, np.argmax(observed, axis=1), n_pos)
+    ends = np.where(has_obs, n_pos - 1 - np.argmax(observed[:, ::-1], axis=1), -1)
+    return np.lexsort((ends, starts))
+
+
+def _greedy_pack(matrix: np.ndarray) -> tuple[np.ndarray, list[list[int]]]:
+    """
+    Pack non-overlapping reads into shared rows via greedy assignment.
+    Reads are sorted by position prior to packing to maximise efficiency.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        2D array (n_reads, n_positions), NaN where unobserved.
+
+    Returns
+    -------
+    tuple[np.ndarray, list[list[int]]]
+        Condensed array and a list of original row indices per collapsed row.
+    """
+    observed = ~np.isnan(matrix)
+    n_pos = matrix.shape[1]
+    order = _sort_reads_by_position(observed)
+
+    row_occupancies: list[np.ndarray] = []
+    row_data: list[np.ndarray] = []
+    row_members: list[list[int]] = []
+
+    for i in order:
+        read_mask = observed[i]
+        placed = False
+        for j, occ in enumerate(row_occupancies):
+            if not np.any(occ & read_mask):
+                occ |= read_mask
+                row_data[j][read_mask] = matrix[i, read_mask]
+                row_members[j].append(i)
+                placed = True
+                break
+        if not placed:
+            new_data = np.full(n_pos, np.nan)
+            new_data[read_mask] = matrix[i, read_mask]
+            row_occupancies.append(read_mask.copy())
+            row_data.append(new_data)
+            row_members.append([i])
+
+    return np.vstack(row_data), row_members
+
+
+def _build_group_df(
+    collapsed_matrix: np.ndarray,
+    group_keys: dict[str, object],
+    position_cols: list[str],
+    row_members: list[list[int]],
+    original_read_indices: list,
+) -> pl.DataFrame:
+    """
+    Reconstruct a Polars DataFrame for one group from its collapsed matrix,
+    metadata, and read membership.
+
+    Parameters
+    ----------
+    collapsed_matrix : np.ndarray
+        2D array (n_collapsed_rows, n_positions).
+    group_keys : dict[str, object]
+        Mapping of group column names to their values for this group.
+    position_cols : list[str]
+        CpG position column names, matching the matrix column order.
+    row_members : list[list[int]]
+        For each collapsed row, the list of original row indices (into the
+        group DataFrame) that were packed into it.
+    original_read_indices : list
+        The read_index values from the group DataFrame, used to map
+        row_members back to meaningful identifiers.
+
+    Returns
+    -------
+    pl.DataFrame
+        Wide-format DataFrame with group metadata, collapsed_index,
+        read_index, and position columns.
+    """
+    n_rows = collapsed_matrix.shape[0]
+    meta_df = pl.DataFrame(
+        {col: [val] * n_rows for col, val in group_keys.items()}
+    ).with_columns(
+        pl.Series('collapsed_index', range(n_rows)),
+        pl.Series(
+            'read_index',
+            [
+                ','.join(str(original_read_indices[i]) for i in members)
+                for members in row_members
+            ],
+        ),
+    )
+
+    data_df = pl.DataFrame(
+        {col: collapsed_matrix[:, i] for i, col in enumerate(position_cols)}
+    )
+
+    return meta_df.hstack(data_df)
+
+
+def collapse_reads(pivoted_df: pl.DataFrame, discrete_cols: list[str]) -> pl.DataFrame:
+    """
+    Collapse non-overlapping reads into shared rows within each
+    chromosome/discrete-column group using greedy interval packing.
+
+    Reads that cover entirely disjoint CpG positions are merged onto the
+    same row. The original read_index values are preserved as a
+    comma-separated string.
+
+    Parameters
+    ----------
+    pivoted_df : pl.DataFrame
+        Wide-format DataFrame from get_window_array.
+    discrete_cols : list[str]
+        Grouping columns within which reads may be merged.
+
+    Returns
+    -------
+    pl.DataFrame
+        Condensed DataFrame with 'collapsed_index' and a comma-separated
+        'read_index' column.
+    """
+    group_cols = ['chromosome'] + discrete_cols
+    meta_cols = set(group_cols + ['read_index'])
+    position_cols = _get_position_cols(pivoted_df, meta_cols)
+
+    result_frames = []
+    for group_keys, group_df in pivoted_df.group_by(group_cols, maintain_order=True):
+        if not isinstance(group_keys, tuple):
+            group_keys = (group_keys,)
+        key_dict = dict(zip(group_cols, group_keys))
+
+        original_read_indices = group_df.get_column('read_index').to_list()
+        matrix = group_df.select(position_cols).to_numpy()
+        collapsed, row_members = _greedy_pack(matrix)
+        result_frames.append(
+            _build_group_df(collapsed, key_dict, position_cols, row_members, original_read_indices)
+        )
+
+    return pl.concat(result_frames)
+
 def create_two_color_cmap(bottom_color, top_color):
     cmap = LinearSegmentedColormap.from_list(
         'custom', 
@@ -217,17 +381,25 @@ def remove_axis_splines(ax):
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
 
+def get_y_index(row,read_indices):
+    for index,r in enumerate(read_indices):
+        read_group = r.split(',')
+        if row['read_index'] in read_group:
+            return index
+    return -1
 def plot_fire_regions(fire_regions,read_indices,positions,ax):
     min_pos = np.min(positions)
     max_pos = np.max(positions)
+    
     for row in fire_regions.iter_rows(named=True):
-        if not row['read_index'] in read_indices:
+        
+        y_index = get_y_index(row,read_indices)
+        if y_index==-1:
             continue
-        y_index = read_indices.index(row['read_index'])
         fire_pos = np.interp([max(min_pos,row['start']),min(max_pos,row['end'])],positions,np.arange(positions.size))
         ax.plot(fire_pos,[y_index,y_index],color=FIRE_COLOR,lw=3,alpha=0.7)
 
-def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:np.array,title:str,out_path:str,genes,fire_regions=None,read_indices=None,add_spacing:bool=False):
+def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:np.array,title:str,out_path:str,genes,fire_regions=None,read_indices=None,add_spacing:bool=False,between_tumor_spacing:int=6):
     
     sort_order = get_sort_order(window_array,in_region,discrete_data)
     
@@ -235,9 +407,22 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
     for col in discrete_data:
         
         discrete_data[col] = discrete_data[col][sort_order].reshape(-1,1)
-        
+    
+
+    
+    #break up between tumor and non-tumor
+    first_tumor_index = np.argmax(discrete_data['tumor_read'].reshape(-1))
+
     if read_indices is not None:
         read_indices = [read_indices[i] for i in sort_order]
+
+        read_indices = read_indices[:first_tumor_index] + ['-']*between_tumor_spacing+read_indices[first_tumor_index:]
+    
+    window_array = np.concatenate([window_array[:first_tumor_index],np.ones((between_tumor_spacing,window_array.shape[1])).astype(np.float64)*5.0,window_array[first_tumor_index:]])
+    
+    for col in discrete_data:
+        
+        discrete_data[col] = np.concatenate([discrete_data[col][:first_tumor_index],np.ones((between_tumor_spacing,discrete_data[col].shape[1])).astype(np.float64)*5.0,discrete_data[col][first_tumor_index:]])
     in_region = in_region.reshape(1,-1)
 
     if add_spacing:
@@ -259,7 +444,7 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
     fig, axs = plt.subplots(3,n_cols,figsize=(scale_factor*window_array.shape[1],scale_factor*window_array.shape[0]),gridspec_kw={'width_ratios': width_ratios,'height_ratios': [1+6*len(genes),30, 1]},constrained_layout=True)
 
    
-    discrete_lims = {col:(np.nanmin(val-1e-9),np.nanmax(val+1e-9)) for col,val in discrete_data.items()}
+    discrete_lims = {'tumor_read':(-1e-9,1+1e-9),'haplotag':(1-1e-9,2+1e-9)}
     discrete_cmap = {'sample_id':create_two_color_cmap('#383dcf','#0fdb24'),'tumor_read':create_two_color_cmap('#757575','#f731dd'),'haplotag':create_two_color_cmap('#f5be3d','#7b13ab')}
     for col in discrete_data:
         if not col in discrete_cmap:
@@ -269,7 +454,7 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
         axs[1,discrete_count].imshow(vals, cmap=discrete_cmap[col],interpolation='none',vmin=discrete_lims[col][0],vmax=discrete_lims[col][1])
         
         remove_axis_splines(axs[1,discrete_count])
-        axs[1,discrete_count].set_ylabel(col.replace('_',' ').title())
+        axs[1,discrete_count].set_ylabel(col.replace('_',' ').title().replace('Haplotag','Haplotype'))
         axs[1,discrete_count].set_aspect('auto')
 
         axs[1,discrete_count].set_xticks([])
@@ -359,7 +544,7 @@ def plot_array(window_array:np.array,discrete_data,in_region:np.array,positions:
 
 
 
-def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_col=1):
+def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_col):
     
     read_data_bin = read_data_bin.select(['chromosome', 'position', 'read_index', 'methylation', 'in_region'] + discrete_cols)
     read_data_bin = read_data_bin.sort(['chromosome','position','read_index'])
@@ -369,7 +554,10 @@ def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_
         index=['chromosome', 'read_index'] + discrete_cols,
         values='methylation',
     )
-
+    
+    pivoted_df = collapse_reads(pivoted_df,discrete_cols)
+    
+    
     in_region = (
         read_data_bin
         .group_by(['chromosome', 'position'])
@@ -382,10 +570,11 @@ def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_
     
     discrete_data = {}
     
-
-    positions = np.array(pivoted_df.columns[4:]).astype(np.int64)
+  
+    positions = np.array(pivoted_df.columns[5:]).astype(np.int64)
     
-    pivoted_df_array=  pivoted_df.drop(['chromosome', 'read_index', 'haplotag', 'tumor_read']).to_numpy()
+    
+    pivoted_df_array=  pivoted_df.drop(['chromosome','collapsed_index','read_index', 'haplotag', 'tumor_read']).to_numpy()
     
     valid_sums = np.count_nonzero(~np.isnan(pivoted_df_array),axis=1)
 
@@ -397,8 +586,8 @@ def get_window_array(read_data_bin,discrete_cols,min_cpgs_per_read,min_cpgs_per_
         if discrete_data[col].dtype == 'O':
             unique_strings, int_array = np.unique(discrete_data[col], return_inverse=True)
             discrete_data[col] = int_array
-
     read_indices = list(pivoted_df['read_index'].to_numpy()[valid_sums>=min_cpgs_per_read])
+    
     valid_cols = np.count_nonzero(~np.isnan(pivoted_df_array),axis=0)
     
     pivoted_df_array = pivoted_df_array[:,valid_cols>=min_cpgs_per_col]
@@ -430,14 +619,11 @@ def plot_region(methylation_data,discrete_cols,chromosome,region_start,region_en
         .alias('in_region')
     )
 
-    try:
+  
+    window_array,discrete_data,in_region,positions,read_indices = get_window_array(significant_region_data,discrete_cols,min_cpgs_per_read=80,min_cpgs_per_col=30)
+
     
-        window_array,discrete_data,in_region,positions,read_indices = get_window_array(significant_region_data,discrete_cols,min_cpgs_per_read=40,min_cpgs_per_col=10)
-    except ValueError as e:
-        print(e)
-        return None
-    
-    region_title = f'{chromosome} - {np.round(region_start-window_buffer,-2):,}-{np.round(region_end+window_buffer,-2):,}'
+    region_title = f'{chromosome.replace("chr","Chromosome ")} - {np.round(region_start-window_buffer,-2):,}-{np.round(region_end+window_buffer,-2):,}'
 
     title = f'{region_title}'
     #filename = f'{chromosome}-{np.round(region_start-window_buffer,-2)}-{np.round(region_end+window_buffer,-2)}-{"-".join(gene_names)}.png'

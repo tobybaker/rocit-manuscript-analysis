@@ -6,10 +6,10 @@ Code accompanying the ROCIT manuscript. This repository contains the processing,
 
 | Directory | Contents |
 |-----------|----------|
-| `code/processing/` | Build training datasets from BAMs, VCFs, ASCAT, DPClust, and phasing output |
-| `code/training/` | Train ROCIT transformer and XGBoost models; optimise methylation probabilities |
-| `code/analysis/` | Generate manuscript figures and statistics |
-| `code/methylation_region_plotter/` | Visualise CpG methylation in genomic regions |
+| `code/processing` | Build training datasets from BAMs, variant calls, copy number, and phasing output |
+| `code/training` | Train ROCIT model and XGBoost comparison; model interpretation through perturbation analysis |
+| `code/analysis` | Generate manuscript figures and statistics |
+| `code/methylation_region_plotter/` | Visualize read-level CpG methylation in genomic regions |
 
 ## Dependencies
 

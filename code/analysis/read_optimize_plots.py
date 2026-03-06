@@ -881,6 +881,8 @@ def get_neighbourhood_data(sample_data,use_reference_positions):
     return neighbourhood_data
 
 def plot_neighbourhood_wrapper(sample_data,read_data,use_reference_positions,fdr_threshold=0.05):
+    sample_data = sample_data.filter(pl.col('penalty')==MAIN_PENALTY)
+    read_data = read_data.filter(pl.col('penalty')==MAIN_PENALTY)
     neighbourhood_data = get_neighbourhood_data(sample_data.to_pandas(),use_reference_positions=use_reference_positions)
     neighbourhood_data = neighbourhood_data.merge(read_data.to_pandas()[['read_index','tumor_predicted_read']])
     
